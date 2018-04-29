@@ -1,0 +1,12 @@
+-r requirements.txt
+mock
+pytest
+pytest-flask
+pytest-mock
+ipython
+pdbpp
+# for commandline testing
+websocket-client
+sphinx
+sphinxcontrib-httpdomain
+sphinxcontrib-httpexample

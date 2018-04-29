@@ -1,0 +1,42 @@
+sudo: required
+cache: pip
+services:
+  - mysql
+  - redis-server
+addons:
+  apt:
+    sources:
+      - mysql-5.7-trusty
+    packages:
+      - mysql-server
+notifications:
+  email:
+    on_failure: never
+    on_success: never
+language: python
+python:
+  - "3.6"
+
+before_install:
+  - openssl aes-256-cbc -K $encrypted_9f3390d04e66_key -iv $encrypted_9f3390d04e66_iv -in tests/core.yaml.enc -out tests/core.yaml -d
+  - mysql_upgrade -u root --force
+  - sudo service mysql restart
+  - mysql -e 'CREATE DATABASE citadeltest;'
+  - export TRAVIS_HOST_IP=`ip -4 addr show eth0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}'`
+  - sudo sh -c 'echo "DOCKER_OPTS=\"-H tcp://0.0.0.0:2375 -H unix:///var/run/docker.sock\"" > /etc/default/docker'
+  - sudo service docker restart
+  - docker login -u "$DOCKER_USERNAME" -p "$DOCKER_PASSWORD" docker.io
+  - sudo mkdir -p /etc/eru && sudo mv tests/core.yaml /etc/eru
+  - docker run -d --net host -p 2379:2379 -p 2380:2380 --name etcd quay.io/coreos/etcd:latest /usr/local/bin/etcd --name node1 --initial-advertise-peer-urls http://${TRAVIS_HOST_IP}:2380 --listen-peer-urls http://${TRAVIS_HOST_IP}:2380 --advertise-client-urls http://${TRAVIS_HOST_IP}:2379 --listen-client-urls http://localhost:2379,http://${TRAVIS_HOST_IP}:2379 --initial-cluster node1=http://${TRAVIS_HOST_IP}:2380
+  - docker run -d --name eru_core --net host --restart always -v /etc/eru:/etc/eru -v /tmp/backup:/tmp/backup projecteru2/core /usr/bin/eru-core
+  - docker run -it --rm --net host projecteru2/cli erucli pod add --favor CPU eru
+  - docker run -it --rm --privileged --net host projecteru2/cli erucli node add eru
+  - sudo mv tests/agent.yaml /etc/eru
+  - docker run -it --rm --net host -v `pwd`/tests/agent-specs.yaml:/tmp/spec.yaml projecteru2/cli erucli container deploy --pod eru --entry agent --network host --image projecteru2/agent --cpu 0.05 /tmp/spec.yaml
+
+script:
+  - pip install -r requirements.txt -r requirements-dev.txt
+  - py.test --capture=no --doctest-modules --ignore=public --ignore=_book --ignore=src
+
+after_failure:
+  - docker ps -aq | xargs -n 1 -i sh -c 'docker inspect {} --format="=============={{.Name}}==============="; docker logs {}'

@@ -1,0 +1,53 @@
+appname: {APP_NAME}                   # global unique name
+git: {GIT_URL}                     # 将app绑定到一个具体的远程giturl，防止appname命名冲突，代码版本比较
+
+builds:                               # spec for building image
+  {NAME1}:                            # image name
+    tag: {TAG}                        # default is the git sha
+    dockerfile: Dockerfile-alternate  # optional, default is {REPO}/Dockerfile
+    target: {TARGET}                  # optional, for multi-stage build
+    args:                             # optional
+      buildno: 1
+  {NAME2}:                            # same as {NAME1}
+
+services:
+  {NAME}:                     # service name
+    user: root                # 默认为 root，还可以定义一些 release image 中存在的 user，比如 nobody 等
+    type: worker              # 默认为 worker，还包括 web, job
+    replicas: 1               # 部署时 proc 的个数，默认为 1
+    labels:                   # 给容器打标签
+      - proctype=router
+
+    mountpoints:                   # 只支持 Type==web 的 proc(默认已分配 ${appname}.${domain} 的域名)
+      - a.external.domain1/b/c    # 响应 a.external.domain1 这个外网域名 b/c 段 location 的请求
+    ports:                     # ports exposed in kubernetes service
+    - 1080/80/tcp              # format: containerPort/servicePort/proto
+
+    # container spec, consult here: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.10/#container-v1-core
+    containers:
+    - name: "xxx"
+      image: {IMAGE}           # 默认为 app image，也可以进行自定义
+      args: ["xx", "xx"]       # Arguments to the entrypoint. if not specified, the image's CMD is used
+      command: {CMD}           # entrypoint array, if not specified, the image's ENTRYPOINT is used
+                               # foramt: ["executeable", "arg1", ...]
+
+      env:                      # environments
+        - ENVA=a
+        - ENVB=b
+      ports:
+        - containerPort: 9506
+          protocol: TCP
+          hostIP: xxx
+          hostPort: xxx
+          name: xxx
+      cpu: 1
+      memory: {PROC_MEMORY}     # 容器所用内存，默认为 32M
+      https_only: true          # 针对 web 类型，默认为false, 是否只允许 https 访问
+      logs:                     # 声明应用需要落地的日志文件，被强制位于 /lain/logs 目录之下
+        - {LOG_FILENAME}        # 对应 /lain/logs/{LOG_FILENAME}
+      volumes:                      # volume 文件，proc 被删时数据也不会移出
+        - /var/log
+        - /etc/nginx/nginx.conf
+      secrets:                      # 定义 secret file 作为配置文件
+        - /secrets/hello            # 定义文件路径，为相对路径时前面会加上 `/lain/app/`
+        - secret.dat
