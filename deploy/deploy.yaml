@@ -1,0 +1,89 @@
+---
+
+kind: Deployment
+apiVersion: extensions/v1beta1
+metadata:
+  labels:
+    app: kae-console
+  name: kae-console
+  namespace: kae
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      k8s-app: kae-console
+  template:
+    metadata:
+      labels:
+        k8s-app: kae-console
+    spec:
+      serviceAccountName: kae-console-serviceaccount
+      containers:
+      - name: redis
+        image: redis:3.2.11
+      - name: kae-console
+        image: yuyang0/kae-console:0.0.1-alpha
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 5000
+          protocol: TCP
+        args:
+          # Uncomment the following line to manually specify Kubernetes API server Host
+          # If not specified, Dashboard will attempt to auto discover the API server and connect
+          # to it. Uncomment only if the default does not work.
+          # - --apiserver-host=http://my-address:port
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 5000
+          initialDelaySeconds: 10
+          timeoutSeconds: 10
+        volumeMounts:
+        - name: docker-sock-volume
+          mountPath: /var/run/docker.sock
+        - name: kae-console-secret-vol
+          mountPath: /etc/kae-console/k8s
+      volumes:
+      - name: docker-sock-volume
+        hostPath:
+          # location on host
+          path: /var/run/docker.sock
+          # this field is optional
+          type: File
+      - name: kae-console-secret-vol
+        secret:
+          secretName: kae-console
+      serviceAccountName: kae-console-serviceaccount
+      # Comment the following tolerations if console must not be deployed on master
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
+---
+kind: Service
+apiVersion: v1
+metadata:
+  labels:
+    app: kae-console
+  name: kae-console
+  namespace: kae
+spec:
+  ports:
+  - port: 80
+    targetPort: 5000
+  selector:
+    k8s-app: kae-console
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: kae-console
+  namespace: kae
+spec:
+  rules:
+  - host: console.gtapp.xyz
+    http:
+      paths:
+      - backend:
+          serviceName: kae-console
+          servicePort: 80

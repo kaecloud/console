@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import json
 import yaml
 from sqlalchemy import event, DDL
 from sqlalchemy.exc import IntegrityError
@@ -7,8 +8,8 @@ from sqlalchemy.orm.exc import StaleDataError
 from werkzeug.utils import cached_property
 
 from console.ext import db
-from console.libs.exceptions import ModelDeleteError
 from console.libs.utils import logger
+from console.libs.k8s import kube_api
 from console.models.base import BaseModelMixin
 from console.models.specs import specs_schema
 
@@ -17,18 +18,18 @@ class App(BaseModelMixin):
     name = db.Column(db.CHAR(64), nullable=False, unique=True)
     # 形如 git@gitlab.ricebook.net:platform/apollo.git
     git = db.Column(db.String(255), nullable=False)
-    # {'prod': {'PASSWORD': 'xxx'}, 'test': {'PASSWORD': 'xxx'}}
+    type = db.Column(db.CHAR(64), nullable=False)
 
     def __str__(self):
         return '<{}:{}>'.format(self.name, self.git)
 
     @classmethod
-    def get_or_create(cls, name, git=None):
+    def get_or_create(cls, name, git, apptype):
         app = cls.get_by_name(name)
         if app:
             return app
 
-        app = cls(name=name, git=git)
+        app = cls(name=name, git=git, type=apptype)
         db.session.add(app)
         db.session.commit()
         return app
@@ -53,7 +54,7 @@ class App(BaseModelMixin):
     def list_users(self):
         from console.models.user import User
         user_ids = [r.user_id for r in
-                    AppUserRelation.filter_by(appname=self.name).all()]
+                    AppUserRelation.query.filter_by(appname=self.name).all()]
         users = [User.get(id_) for id_ in user_ids]
         return users
 
@@ -61,10 +62,13 @@ class App(BaseModelMixin):
     def latest_release(self):
         return Release.query.filter_by(app_id=self.id).order_by(Release.id.desc()).limit(1).first()
 
+    def get_release_by_tag(self, tag):
+        return Release.query.filter_by(app_id=self.id, tag=tag).first()
+
     @property
-    def services(self):
+    def service(self):
         release = self.latest_release
-        return release and release.services
+        return release and release.service
 
     @property
     def specs(self):
@@ -76,17 +80,14 @@ class App(BaseModelMixin):
         specs = self.specs
         return specs and specs.subscribers
 
-    def has_problematic_container(self, zone=None):
-        containers = self.get_container_list(zone)
-        if not containers or {c.status() for c in containers} == {'running'}:
-            return False
-        return True
-
     def delete(self):
+        """
+        the caller must ensure the all kubernetes objects have been deleted
+        :return:
+        """
         appname = self.name
-        #TODO notify k8s to delete Deployment object
 
-        # delete all deployments
+        # delete all releases
         Release.query.filter_by(app_id=self.id).delete()
         # delete all permissions
         AppUserRelation.query.filter_by(appname=appname).delete()
@@ -95,54 +96,51 @@ class App(BaseModelMixin):
 
 class Release(BaseModelMixin):
     __table_args__ = (
-        db.UniqueConstraint('app_id', 'sha'),
+        db.UniqueConstraint('app_id', 'tag'),
     )
-
-    sha = db.Column(db.CHAR(64), nullable=False, index=True)
+    # git tag
+    tag = db.Column(db.CHAR(64), nullable=False, index=True)
     app_id = db.Column(db.Integer, nullable=False)
-    image = db.Column(db.String(255), nullable=False, default='')
-    specs_text = db.Column(db.JSON)
+    image = db.Column(db.CHAR(255), nullable=False, default='')
+    build_status = db.Column(db.Boolean, nullable=False, default=False)
+    specs_text = db.Column(db.Text)
     # store trivial info like branch, author, git tag, commit messages
-    misc = db.Column(db.JSON)
+    misc = db.Column(db.Text)
 
     def __str__(self):
-        return '<{r.appname}:{r.short_sha}>'.format(r=self)
+        return '<{r.appname}:{r.tag}>'.format(r=self)
 
     @classmethod
-    def create(cls, app, sha, specs_text=None, branch='', git_tag='', author='', commit_message='', git=''):
+    def create(cls, app, tag, specs_text, image=None, build_status=False, branch='', author='', commit_message=''):
         """app must be an App instance"""
         appname = app.name
 
-        unmarshal_result = specs_schema.load(yaml.load(specs_text))
+        # check the format of specs text(ignore the result)
+        specs_schema.load(yaml.load(specs_text))
         misc = {
-            'git_tag': git_tag,
             'author': author,
             'commit_message': commit_message,
+            'git': app.git,
         }
 
         try:
-            new_release = cls(sha=sha, app_id=app.id, specs_text=specs_text, misc=misc)
+            new_release = cls(tag=tag, app_id=app.id, image=image, build_status=build_status, specs_text=specs_text, misc=json.dumps(misc))
             db.session.add(new_release)
             db.session.commit()
         except IntegrityError:
-            logger.warn('Fail to create Release %s %s, duplicate', appname, sha)
+            logger.warn('Fail to create Release %s %s, duplicate', appname, tag)
             db.session.rollback()
             raise
 
         return new_release
 
     def delete(self):
-        container_list = self.get_container_list()
-        if container_list:
-            raise ModelDeleteError('Release {} is still running, delete containers {} before deleting this release'.format(self.short_sha, container_list))
         logger.warn('Deleting release %s', self)
-        Deployment.query.filter_by(release_id=self.id).delete()
         return super(Release, self).delete()
 
     @classmethod
     def get(cls, id):
         r = super(Release, cls).get(id)
-        # 要检查下 app 还在不在, 不在就失败吧
         if r and r.app:
             return r
         return None
@@ -154,26 +152,23 @@ class Release(BaseModelMixin):
             return []
 
         q = cls.query.filter_by(app_id=app.id).order_by(cls.id.desc())
-        return q[start:start + limit]
+        if limit is None:
+            return q[start:]
+        else:
+            return q[start:start + limit]
 
     @classmethod
-    def get_by_app_and_sha(cls, name, sha):
+    def get_by_app_and_tag(cls, name, tag):
         app = App.get_by_name(name)
         if not app:
             raise ValueError('app {} not found'.format(name))
 
-        if len(sha) < 7:
-            raise ValueError('minimum sha length is 7')
-        return cls.query.filter(cls.app_id==app.id, cls.sha.like('{}%'.format(sha))).first()
+        return cls.query.filter_by(app_id=app.id, tag=tag).first()
 
     @property
     def raw(self):
         """if no builds clause in app.yaml, this release is considered raw"""
-        return not self.specs.stages
-
-    @property
-    def short_sha(self):
-        return self.sha[:7]
+        return not self.specs.builds
 
     @property
     def app(self):
@@ -184,20 +179,19 @@ class Release(BaseModelMixin):
         return self.app.name
 
     @property
-    def git_tag(self):
-        return self.misc.get('git_tag')
-
-    @property
     def commit_message(self):
-        return self.misc.get('commit_message')
+        misc = json.loads(self.misc)
+        return misc.get('commit_message')
 
     @property
     def author(self):
-        return self.misc.get('author')
+        misc = json.loads(self.misc)
+        return misc.get('author')
 
     @property
     def git(self):
-        return self.misc.get('git')
+        misc = json.loads(self.misc)
+        return misc.get('git')
 
     @cached_property
     def specs(self):
@@ -206,50 +200,16 @@ class Release(BaseModelMixin):
         return unmarshal_result.data
 
     @property
-    def services(self):
-        return self.specs.services
+    def service(self):
+        return self.specs.service
 
-    def update_image(self, image):
+    def update_build_status(self, status):
         try:
-            self.image = image
-            logger.debug('Set image %s for release %s', image, self.sha)
+            self.build_status = status
             db.session.add(self)
             db.session.commit()
         except StaleDataError:
             db.session.rollback()
-
-
-class Deployment(BaseModelMixin):
-    release_id = db.Column(db.Integer, nullable=False)
-    service_name = db.Column(db.CHAR(64), nullable=False)
-    specs_text = db.Column(db.JSON)
-    debug = db.Column(db.Integer, default=0)
-
-    def __str__(self):
-        return '<{} deployment:{}>'.format(self.appname, self.name)
-
-    @classmethod
-    def create(cls, release, service_name=None, specs_text=None, debug=None):
-        try:
-            dp = cls(release_id=release.id, service_name=service_name, specs_text=specs_text, debug=debug)
-            db.session.add(dp)
-            db.session.commit()
-            return dp
-        except IntegrityError:
-            db.session.rollback()
-            raise
-
-    @property
-    def release(self):
-        return Release.get(self.release_id)
-
-    @property
-    def app(self):
-        return App.get(self.app_id)
-
-    @property
-    def appname(self):
-        return self.release.appname
 
 
 class AppUserRelation(BaseModelMixin):

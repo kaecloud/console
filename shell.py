@@ -6,7 +6,7 @@ import sys
 import atexit
 import IPython
 
-from citadel.app import create_app
+from console.app import create_app
 
 
 def hook_readline_hist():
@@ -37,10 +37,8 @@ def get_banner():
 
 
 def pre_imports():
-    from citadel.models import User, App, Release, AppUserRelation, Container, ELBInstance, OPLog
-    from citadel.tasks import remove_container
-    from citadel.ext import db, rds, get_etcd
-    from citadel.rpc.client import get_core
+    from console.models import User, App, Release, AppUserRelation, OPLog
+    from console.ext import db, rds
     return locals()
 
 
@@ -68,8 +66,8 @@ def ipython_shell(user_ns):
     app.initialize()
     app.shell.user_ns.update(user_ns)
 
-    citadel_app = create_app()
-    with citadel_app.app_context():
+    web_app = create_app()
+    with web_app.app_context():
         sys.exit(app.start())
 
 

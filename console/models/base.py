@@ -91,7 +91,6 @@ class Enum34(types.TypeDecorator):
 
 
 class StrictSchema(Schema):
-
     @validates_schema(pass_original=True)
     def check_unknown_fields(self, data, original_data):
         unknown = set(original_data) - set(self.fields) - set(field.load_from for field in self.fields.values())
@@ -100,3 +99,4 @@ class StrictSchema(Schema):
 
     class Meta:
         strict = True
+        ordered = True

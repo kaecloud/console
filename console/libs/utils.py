@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
+import time
 import json
+import string
+import random
 import logging
 import requests
-from etcd import EtcdException
 from flask import session
-from functools import wraps, partial
+from functools import wraps
 
-from console.config import NOTBOT_SENDMSG_URL, LOGGER_NAME, DEBUG
+from console.config import BOT_WEBHOOK_URL, LOGGER_NAME, DEBUG, DEFAULT_REGISTRY
 from console.libs.jsonutils import VersatileEncoder
 
 
@@ -38,9 +40,6 @@ def handle_exception(exceptions, default=None):
     return _handle_exception
 
 
-handle_etcd_exception = partial(handle_exception, (EtcdException, ValueError, KeyError))
-
-
 def login_user(user):
     session['id'] = user.id
     session['name'] = user.name
@@ -52,18 +51,22 @@ def shorten_sentence(s, length=88):
     return s
 
 
-def notbot_sendmsg(to, content, subject='console message'):
-    if not all([to, content, NOTBOT_SENDMSG_URL]):
+def bearychat_sendmsg(to, content):
+    if not all([to, content, BOT_WEBHOOK_URL]):
         return
     to = to.strip(';')
     if DEBUG:
         logger.debug('Sending notbot message to %s, content: %s', to, content)
         return
     content = '[console] {}'.format(content)
+    data = {
+        "text": content,
+        "channel": to,
+    }
     try:
-        res = requests.post(NOTBOT_SENDMSG_URL, {'to': to, 'content': content, subject: subject})
+        res = requests.post(BOT_WEBHOOK_URL, data, headers={'Content-Type': 'application/json'})
     except:
-        logger.error('Send notbot msg failed, got code %s, response %s', res.status_code, res.rext)
+        logger.exception('Send bearychat msg failed')
         return
     return res
 
@@ -95,3 +98,39 @@ def memoize(f):
 def make_sentence_json(message):
     msg = json.dumps({'type': 'sentence', 'message': message}, cls=VersatileEncoder)
     return msg + '\n'
+
+
+def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
+    return ''.join(random.choice(chars) for _ in range(size))
+
+
+def generate_unique_dirname(prefix=None):
+    time_str = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
+    if prefix is None:
+        name = "{}_{}".format(time_str, id_generator(8))
+    else:
+        name = "{}_{}_{}".format(prefix, time_str, id_generator(8))
+    return name
+
+
+def parse_image_name(image_name):
+    parts = image_name.split('/', 1)
+    if '.' in parts[0]:
+        return parts[0], parts[1]
+    else:
+        return None, image_name
+
+
+def construct_full_image_name(name, appname):
+    if name:
+        registry, img_name = parse_image_name(name)
+        if registry is not None:
+            return name
+        else:
+            # use docker hub
+            if '/' in name:
+                return name
+            else:
+                return DEFAULT_REGISTRY.rstrip('/') + '/' + name
+    else:
+        return DEFAULT_REGISTRY.rstrip('/') + '/' + appname

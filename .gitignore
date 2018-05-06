@@ -1,13 +1,12 @@
 _build
 .vscode
-tests/core.yaml
 .pytest_cache/
 *.py[co]
 .ipynb_checkpoints
 test.ipynb
 .env
 local_config.*
-tests/__pycache__/*
+__pycache__
 .ropeproject
 migrations
 src
@@ -16,3 +15,7 @@ _book
 public
 node_modules
 passwords.txt
+secret.json
+.envrc
+.idea/
+/config/

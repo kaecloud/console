@@ -2,10 +2,12 @@
 
 from .user import User
 from .app import App, Release, AppUserRelation
-from .oplog import OPLog
+from .oplog import OPLog, OPType
+from .specs import load_specs
 
 
 __all__ = [
     'User', 'App', 'Release', 'AppUserRelation',
-    'OPLog',
+    'OPLog', 'OPType',
+    'load_specs',
 ]

@@ -1,0 +1,52 @@
+[[source]]
+url = "https://mirrors.aliyun.com/pypi/simple"
+verify_ssl = true
+name = "pypi"
+
+[dev-packages]
+pytest = "*"
+mock = "*"
+pytest-flask = "*"
+pytest-mock = "*"
+ipython = "*"
+pdbpp = "*"
+
+[packages]
+flask = "*"
+flask-sqlalchemy = "*"
+flask-session = "*"
+flask-caching = "*"
+loginpass = "*"
+authlib = "*"
+redis = "*"
+smart-getenv = "*"
+sqlalchemy = "*"
+werkzeug = "*"
+flask-mako = "*"
+raven = "*"
+pyyaml = "*"
+more-itertools = "*"
+gunicorn = "*"
+pymysql = "*"
+requests = "*"
+humanize = "*"
+humanfriendly = "*"
+boltons = "*"
+blinker = "*"
+wrapt = "*"
+pyparsing = "*"
+crontab = "*"
+webargs = "*"
+marshmallow = "*"
+python-redis-lock = "*"
+addict = "*"
+docker = "*"
+psutil = "*"
+flasgger = "*"
+# workaround for issue https://github.com/pypa/pipenv/issues/2113
+greenlet = {version = "*", platform_python_implementation="=='CPython'"}
+gevent = "*"
+kubernetes = "*"
+
+[requires]
+python_version = "3.5"

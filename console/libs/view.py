@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import json
 from flask import Blueprint, jsonify, url_for, redirect, g, current_app, abort, request
 from flask_mako import render_template
 from functools import partial, wraps
@@ -50,7 +51,7 @@ def create_page_blueprint(name, import_name, url_prefix=None):
     return bp
 
 
-def create_api_blueprint(name, import_name, url_prefix=None, jsonize=True, handle_http_error=True):
+def create_api_blueprint(name, import_name, url_prefix=None, jsonize=True, handle_http_error=True, version='v1'):
     """
     幺蛾子, 就是因为flask写API挂路由太累了, 搞了这么个东西.
     会把url_prefix挂到/api/下.
@@ -59,7 +60,7 @@ def create_api_blueprint(name, import_name, url_prefix=None, jsonize=True, handl
     if url_prefix and url_prefix.startswith('/'):
         raise URLPrefixError('url_prefix ("%s") must not start with /' % url_prefix)
 
-    bp_url_prefix = '/api/'
+    bp_url_prefix = '/api/{}'.format(version)
     if url_prefix:
         bp_url_prefix = os.path.join(bp_url_prefix, url_prefix)
     bp = Blueprint(name, import_name, url_prefix=bp_url_prefix)
@@ -80,7 +81,7 @@ def create_api_blueprint(name, import_name, url_prefix=None, jsonize=True, handl
     return bp
 
 
-def user_require(privileged=False):
+def user_require(privileged=False, redirect_on_false=False):
     def _user_require(func):
         @wraps(func)
         def _(*args, **kwargs):
@@ -89,10 +90,15 @@ def user_require(privileged=False):
             else:
                 g.user = get_current_user()
             if not g.user:
-                return redirect('{}?next={}'.format(url_for('user.login'), request.url))
+                if redirect_on_false is True:
+                    return redirect('{}?next={}'.format(url_for('user.login'), request.url))
+                else:
+                    # TODO: change the message
+                    abort(403, '{}?next={}'.format(url_for('user.login'), request.url))
             elif privileged and g.user.privileged != 1:
                 abort(403, 'dude you are not administrator')
 
             return func(*args, **kwargs)
         return _
     return _user_require
+

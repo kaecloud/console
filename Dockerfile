@@ -1,15 +1,18 @@
-FROM golang:1.10.2 as kaniko
-RUN go get -u github.com/GoogleContainerTools/kaniko/tree/master/cmd/executor
-
-
-FROM python:3.6.4-alpine
+FROM python:3.5.5-alpine
 MAINTAINER yuyang <yyangplus@gmail.com>
 
-RUN mkdir -p /opt/console
-ADD . /opt/console
-COPY --from=kaniko /go/bin/executor /usr/bin/executor
+RUN mkdir -p /kae/app
+ADD . /kae/app
 
-WORKDIR /opt/console
-RUN apk add --no-cache alpine-sdk libstdc++ && \
-	pip install -U -r requirements.txt && \
-	apk del alpine-sdk
+WORKDIR /kae/app
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories && \
+    apk update && \
+    apk add --no-cache libffi-dev openssl-dev linux-headers alpine-sdk libstdc++ && \
+	pip install -i https://mirrors.aliyun.com/pypi/simple/ -U pipenv && \
+	pipenv install --system --deploy && \
+	apk del alpine-sdk && \
+	apk add --no-cache git openssh
+
+EXPOSE 5000
+
+ENTRYPOINT ["gunicorn", "console.app:app", "-c", "gunicorn_config.py"]
