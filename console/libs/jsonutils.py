@@ -42,7 +42,7 @@ def jsonize(f):
         r = f(*args, **kwargs)
         data, code = r if isinstance(r, tuple) else (r, 200)
         try:
-            return Response(json.dumps(data, cls=VersatileEncoder), status=code, mimetype='application/json')
+            return Response(json.dumps(data, cls=VersatileEncoder, ensure_ascii=False), status=code, mimetype='application/json')
         except TypeError:
             # data could be flask.Response objects, e.g. redirect responses
             return data

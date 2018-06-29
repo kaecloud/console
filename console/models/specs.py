@@ -5,7 +5,7 @@ from addict import Dict
 from marshmallow import fields, validates_schema, ValidationError, post_load
 
 from console.models.base import StrictSchema
-from console.libs.validation import validate_cpu, validate_memory
+from console.libs.validation import validate_cpu, validate_memory, validate_jobname
 from console.config import DEFAULT_REGISTRY
 
 
@@ -121,7 +121,10 @@ class ContainerSpec(StrictSchema):
 
     cpu = fields.Dict(validate=validate_cpu)
     memory = fields.Dict(validate=validate_memory)
+    gpu = fields.Int()
+
     volumes = fields.List(fields.Str(), validate=validate_abs_path_list)
+    dfsVolumes = fields.List(fields.Str(), validate=validate_abs_path_list)
     configDir = fields.Str()
     secrets = fields.Dict()
 
@@ -210,15 +213,37 @@ def load_specs(raw_data, tag):
     return Dict(data)
 
 
-class JobSpecSchema(StrictSchema):
+class JobSchema(StrictSchema):
+    jobname = fields.Str(required=True, validate=validate_jobname)
+    # the below 4 fields are not used by kubernetes
+    git = fields.Str()
+    branch = fields.Str(missing='master')
+    commit = fields.Str()
+    comment = fields.Str()
+
     backoffLimit = fields.Int()
     completions = fields.Int()
+
     parallelism = fields.Int()
+    autoRestart = fields.Bool(missing=False)
+
     containers = fields.List(fields.Nested(ContainerSpec), required=True)
 
+    @post_load
+    def finalize(self, data):
+        """add defaults to fields, and then construct a Box"""
+        return Dict(data)
 
-class JobSchema(StrictSchema):
-    jobname = fields.Str(required=True)
-    git = fields.Str(required=True)
-    builds = fields.List(fields.Nested(BuildSchema), missing=[])
-    job = fields.Nested(JobSpecSchema, required=True)
+
+job_schema = JobSchema()
+
+
+def load_job_specs(raw_data):
+    """
+    add defaults to fields, and then construct a Dict
+    :param raw_data:
+    :param tag: release tag
+    :return:
+    """
+    data = job_schema.load(raw_data).data
+    return Dict(data)

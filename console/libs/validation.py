@@ -1,9 +1,17 @@
 # -*- coding: utf-8 -*-
+import re
 from humanfriendly import parse_size, InvalidSize
 from marshmallow import fields, validates_schema, ValidationError
 from numbers import Number
 
 from console.models.base import StrictSchema
+from console.libs.k8s import kube_api
+
+
+def validate_jobname(name):
+    regex = re.compile(r'[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+    if regex.match(name) is None:
+        raise ValidationError("jobname is invalid")
 
 
 def validate_username(n):
@@ -68,6 +76,11 @@ def validate_cpu_dict(dd):
         validate_cpu(v)
 
 
+def validate_cluster_name(cluster):
+    if kube_api.cluster_exist(cluster) is False:
+        raise ValidationError("cluster {} not exists".format(cluster))
+
+
 class RegisterSchema(StrictSchema):
     appname = fields.Str(required=True)
     tag = fields.Str(required=True)
@@ -104,6 +117,7 @@ class UserSchema(StrictSchema):
 
 
 class DeploySchema(StrictSchema):
+    cluster = fields.Str(required=True, validate=validate_cluster_name)
     tag = fields.Str(required=True)
     specs_text = fields.Str()
     cpus = fields.Dict(validate=validate_cpu_dict)
@@ -113,6 +127,7 @@ class DeploySchema(StrictSchema):
 
 
 class ScaleSchema(StrictSchema):
+    cluster = fields.Str(required=True, validate=validate_cluster_name)
     cpus = fields.Dict(validate=validate_cpu_dict)
     memories = fields.Dict(validate=validate_memory_dict)
     replicas = fields.Int()
@@ -132,32 +147,52 @@ class BuildArgsSchema(StrictSchema):
     tag = fields.Str(required=True)
 
 
+class ClusterArgSchema(StrictSchema):
+    cluster = fields.Str(required=True, validate=validate_cluster_name)
+
+
 class SecretSchema(StrictSchema):
+    cluster = fields.Str(required=True, validate=validate_cluster_name)
     data = fields.Dict(required=True, validate=validate_secret_data)
 
 
 class ConfigMapSchema(StrictSchema):
+    cluster = fields.Str(required=True, validate=validate_cluster_name)
     data = fields.Str(required=True)
     config_name = fields.Str(default='config')
 
 
 class RollbackSchema(StrictSchema):
+    cluster = fields.Str(required=True, validate=validate_cluster_name)
     revision = fields.Int(missing=0)
 
 
-class RunJobSchema(StrictSchema):
-    jobname = fields.Str()
+class JobArgsSchema(StrictSchema):
+    jobname = fields.Str(validate=validate_jobname)
+    git = fields.Str()
+    branch = fields.Str(missing='master')
+    commit = fields.Str()
+    comment = fields.Str()
+
+    shell = fields.Bool(missing=False)
+
     image = fields.Str()
     command = fields.Str()
+    gpu = fields.Int()
+    autoRestart = fields.Bool(missing=False)
+
     specs_text = fields.Str()
-    cpu = fields.Float()
-    memory = fields.Function(deserialize=parse_memory)
-    count = fields.Int()
 
     @validates_schema(pass_original=True)
     def further_check(self, data, original_data):
-        pass
-
+        if 'specs_text' not in data:
+            required_fields = (
+                'jobname', 'image',
+                'command'
+            )
+            for field in required_fields:
+                if field not in original_data:
+                    raise ValidationError("{} is required when specs_text is null".format(field))
 
 
 register_schema = RegisterSchema()

@@ -33,7 +33,7 @@ def hook_readline_hist():
 
 
 def get_banner():
-    return 'In Citadel shell now\n'
+    return 'In Console shell now\n'
 
 
 def pre_imports():

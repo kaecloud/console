@@ -95,7 +95,7 @@ def test_specs():
 
 def test_secret():
     appname = "abcdefg"
-    api = KubernetesApi(use_kubeconfig=True)
+    api = KubernetesApi()
     dd = {
         "username": "root",
         "password": "123456",
@@ -126,7 +126,7 @@ def test_config_map():
     bbb = 1
     ccc = 2
     """
-    api = KubernetesApi(use_kubeconfig=True)
+    api = KubernetesApi()
     api.create_or_update_config_map(appname, data)
     cfg = api.get_config_map(appname)
     assert cfg == data
@@ -138,7 +138,7 @@ def test_config_map():
     ccc = 2
     ddd = 678
     """
-    api = KubernetesApi(use_kubeconfig=True)
+    api = KubernetesApi()
     api.create_or_update_config_map(appname, data)
     cfg = api.get_config_map(appname)
     assert cfg == data

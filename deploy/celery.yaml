@@ -4,41 +4,34 @@ kind: Deployment
 apiVersion: extensions/v1beta1
 metadata:
   labels:
-    app: kae-console
-  name: kae-console
+    app: kae-console-celery
+  name: kae-console-celery
   namespace: kae
 spec:
-  replicas: 1
+  replicas: 2
   revisionHistoryLimit: 10
   selector:
     matchLabels:
-      k8s-app: kae-console
+      k8s-app: kae-console-celery
   template:
     metadata:
       labels:
-        k8s-app: kae-console
-      annotations:
-        renew_id: "2"
+        k8s-app: kae-console-celery
     spec:
       serviceAccountName: kae-console-serviceaccount
       containers:
-      - name: kae-console
+      - name: kae-console-celery
         image: yuyang0/kae-console:0.0.1-alpha3
         imagePullPolicy: Always
-        ports:
-        - containerPort: 5000
-          protocol: TCP
+        command: ["celery", "-A", "console.app:celery", "worker", "--autoscale=4,2", "-B", "-Ofair"]
         args:
           # Uncomment the following line to manually specify Kubernetes API server Host
           # If not specified, Dashboard will attempt to auto discover the API server and connect
           # to it. Uncomment only if the default does not work.
           # - --apiserver-host=http://my-address:port
-        livenessProbe:
-          httpGet:
-            path: /healthz
-            port: 5000
-          initialDelaySeconds: 10
-          timeoutSeconds: 10
+        env:
+        - name: C_FORCE_ROOT
+          value: haha
         volumeMounts:
         - name: docker-sock-volume
           mountPath: /var/run/docker.sock
@@ -59,35 +52,3 @@ spec:
       tolerations:
       - key: node-role.kubernetes.io/master
         effect: NoSchedule
----
-kind: Service
-apiVersion: v1
-metadata:
-  labels:
-    app: kae-console
-  name: kae-console
-  namespace: kae
-spec:
-  ports:
-  - port: 80
-    targetPort: 5000
-  selector:
-    k8s-app: kae-console
----
-apiVersion: extensions/v1beta1
-kind: Ingress
-metadata:
-  name: kae-console
-  namespace: kae
-spec:
-  tls:
-  - hosts:
-    - console.gtapp.xyz
-    secretName: gtapp-xyz-tls
-  rules:
-  - host: console.gtapp.xyz
-    http:
-      paths:
-      - backend:
-          serviceName: kae-console
-          servicePort: 80

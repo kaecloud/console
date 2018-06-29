@@ -11,14 +11,14 @@ from flask_caching import Cache
 from flask_mako import MakoTemplates
 from flask_session import Session
 from flask_sqlalchemy import SQLAlchemy
-from redis import Redis
+from redis import StrictRedis
 
 from console.config import REDIS_URL, OAUTH_APP_NAME, GITLAB_HOST
 
 
 db = SQLAlchemy()
 mako = MakoTemplates()
-rds = Redis.from_url(REDIS_URL)
+rds = StrictRedis.from_url(REDIS_URL)
 
 
 class PrivateTokenClient(object):
@@ -31,6 +31,7 @@ class PrivateTokenClient(object):
             'Private-Token': token,
         }
         r = requests.get(url, headers=headers)
+        r.raise_for_status()
         data = r.json()
         params = {
             'sub': str(data['id']),

@@ -1,13 +1,19 @@
 import os
+import logging
 import json
 import base64
 import copy
 from addict import Dict
-from kubernetes import client, config
+from kubernetes import client, config, watch
+from kubernetes.watch.watch import iter_resp_lines
+
 from kubernetes.client.rest import ApiException
 import redis_lock
 
-from console.config import USE_KUBECONFIG, HOST_VOLUMES_DIR, POD_LOG_DIR, BASE_DOMAIN, REGISTRY_AUTHS
+from console.config import (
+    HOST_VOLUMES_DIR, POD_LOG_DIR, BASE_DOMAIN, BASE_TLS_SECRET,
+    REGISTRY_AUTHS, DFS_VOLUME, DFS_MOUNT_DIR, JOBS_ROOT_DIR, JOBS_OUPUT_ROOT_DIR,
+)
 from console.ext import rds
 from .utils import parse_image_name, id_generator
 
@@ -26,24 +32,120 @@ def safe(f):
 
 class KubernetesApi(object):
     _INSTANCE = None
+    ALL_CLUSTER = "__all_cluster__"
 
-    def __init__(self, use_kubeconfig=False):
-        if use_kubeconfig:
-            config.load_kube_config()
-        else:
-            config.load_incluster_config()
-        self.core_v1api = client.CoreV1Api()
-        self.extensions_api = client.ExtensionsV1beta1Api()
+    def __init__(self):
+        self.cluster_map = {}
+        self.default_cluster_name = None
+        self._load_multiple_clients()
 
     @classmethod
-    def instance(cls, use_kubeconfig=False):
+    def instance(cls):
         if cls._INSTANCE is None:
-            cls._INSTANCE = cls(use_kubeconfig)
+            cls._INSTANCE = cls()
         return cls._INSTANCE
 
-    def get_app_pods(self, appname, namespace="default"):
-        label_selector = "kae-app={}".format(appname)
+    @property
+    def cluster_names(self):
+        return list(self.cluster_map.keys())
+
+    def cluster_exist(self, cluster_name):
+        return cluster_name in self.cluster_map
+
+    def _load_multiple_clients(self):
+        if os.path.exists(os.path.expanduser("~/.kube/config")):
+            contexts, active_context = config.list_kube_config_contexts()
+            if not contexts:
+                raise Exception("no context in kubeconfig")
+            self.default_cluster_name = active_context['name']
+
+            contexts = [context['name'] for context in contexts]
+            for ctx in contexts:
+                core_v1api = client.CoreV1Api(
+                    api_client=config.new_client_from_config(context=ctx))
+                extensions_api = client.ExtensionsV1beta1Api(
+                    api_client=config.new_client_from_config(context=ctx))
+                batch_api = client.BatchV1Api(
+                    api_client=config.new_client_from_config(context=ctx))
+                self.cluster_map[ctx] = ClientApiBundle(ctx, core_v1api, extensions_api, batch_api)
+        else:
+            config.load_incluster_config()
+            core_v1api = client.CoreV1Api()
+            extensions_api = client.ExtensionsV1beta1Api()
+            batch_api = client.BatchV1Api()
+            self.cluster_map['default'] = ClientApiBundle('default', core_v1api, extensions_api, batch_api)
+
+    def __getattr__(self, item):
+        def wrapper(*args, **kwargs):
+            cluster_name = kwargs.pop('cluster_name', self.default_cluster_name)
+            if cluster_name == self.ALL_CLUSTER:
+                results = {}
+                for name, cluster in self.cluster_map.items():
+                    func = getattr(cluster, item)
+                    results[name] = func(*args, **kwargs)
+                return results
+            else:
+                cluster = self.cluster_map.get(cluster_name, None)
+                if cluster is None:
+                    raise Exception("cluster {} is not available".format(cluster_name))
+                # if cluster is None and len(self.cluster_map) == 1:
+                #     cluster = list(self.cluster_map.values())[0]
+                func = getattr(cluster, item)
+                return func(*args, **kwargs)
+        return wrapper
+
+
+class ClientApiBundle(object):
+    def __init__(self, name, core_v1api, extensions_api, batch_api):
+        self.name = name
+        self.core_v1api = core_v1api
+        self.extensions_api = extensions_api
+        self.batch_api = batch_api
+
+    def create_job(self, spec, namespace='default'):
+        body = self._create_job_dict(spec)
+        self.batch_api.create_namespaced_job(body=body, namespace=namespace)
+
+    def delete_job(self, jobname, namespace='default', ignore_404=False):
+        try:
+            self.batch_api.delete_namespaced_job(
+                name=jobname, namespace=namespace,
+                body=client.V1DeleteOptions(propagation_policy="Foreground",
+                                            grace_period_seconds=5))
+        except ApiException as e:
+            if not (e.status == 404 and ignore_404 is True):
+                raise e
+
+    def get_job(self, jobname, namespace='default'):
+        return self.batch_api.read_namespaced_job(jobname, namespace=namespace)
+
+    def get_pods(self, label_selector, namespace='default'):
         return self.core_v1api.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
+
+    def get_pod_log(self, podname, namespace='default', **kwargs):
+        kwargs.pop('follow', False)
+        return self.core_v1api.read_namespaced_pod_log(name=podname, namespace=namespace, **kwargs)
+
+    def follow_pod_log(self, podname, namespace='default', **kwargs):
+        kwargs['_preload_content'] = False
+        kwargs['follow'] = True
+        resp = self.core_v1api.read_namespaced_pod_log(name=podname, namespace=namespace, **kwargs)
+        for line in iter_resp_lines(resp):
+            yield line
+
+    def get_job_pods(self, jobname, namespace='default'):
+        label_selector = "kae-job-name={}".format(jobname)
+        return self.core_v1api.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
+
+    def get_app_pods(self, appname, namespace="default"):
+        label_selector = "kae-app-name={}".format(appname)
+        return self.core_v1api.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
+
+    def watch_pods(self, label_selector=None, **kwargs):
+        if label_selector is None:
+            label_selector = "kae=true"
+        w = watch.Watch()
+        return w.stream(self.core_v1api.list_pod_for_all_namespaces, label_selector=label_selector, **kwargs)
 
     def create_or_update_config_map(self, appname, cfg, config_name="config", namespace="default"):
         cmap = client.V1ConfigMap()
@@ -154,8 +256,8 @@ class KubernetesApi(object):
         self.extensions_api.replace_namespaced_deployment(name=appname, namespace=namespace, body=deployment)
 
     @safe
-    def deploy_app(self, spec, release_tag):
-        deployments, services, ingress = self.create_resource_dict(spec, release_tag)
+    def deploy_app(self, spec, release_tag, spec_version_id):
+        deployments, services, ingress = self.create_resource_dict(spec, release_tag, spec_version_id)
         for d in deployments:
             self.apply(d)
         for s in services:
@@ -163,8 +265,8 @@ class KubernetesApi(object):
         for i in ingress:
             self.apply(i)
 
-    def update_app(self, appname, spec, release_tag, namespace='default', version=None, renew_id=None):
-        d = self._create_deployment_dict(spec, release_tag, version=version, renew_id=renew_id)
+    def update_app(self, appname, spec, release_tag, spec_version_id, namespace='default', version=None, renew_id=None):
+        d = self._create_deployment_dict(spec, release_tag, spec_version_id, version=version, renew_id=renew_id)
         self.extensions_api.replace_namespaced_deployment(name=appname, namespace=namespace, body=d)
 
     @safe
@@ -239,14 +341,14 @@ class KubernetesApi(object):
                 raise e
 
     @classmethod
-    def create_resource_dict(cls, spec, release_tag):
+    def create_resource_dict(cls, spec, release_tag, spec_version_id):
         deployments = []
         services = []
         ingress = []
         apptype = spec.type
 
         if apptype in ("web", "worker"):
-            obj = cls._create_deployment_dict(spec, release_tag)
+            obj = cls._create_deployment_dict(spec, release_tag, spec_version_id)
             deployments.append(obj)
 
             obj = cls._create_service_dict(spec)
@@ -258,7 +360,9 @@ class KubernetesApi(object):
         return deployments, services, ingress
 
     @classmethod
-    def _construct_pod_spec(cls, name, volumes_root, container_spec_list):
+    def _construct_pod_spec(cls, name, volumes_root, container_spec_list,
+                            restartPolicy='Always', initial_env=None,
+                            initial_vol_mounts=None, default_work_dir=None):
         pod_spec = Dict({
             'volumes': [],
         })
@@ -273,6 +377,10 @@ class KubernetesApi(object):
             for attr in copy_list:
                 if container_spec[attr]:
                     c[attr] = copy.deepcopy(container_spec[attr])
+                else:
+                    if attr == 'workingDir' and default_work_dir is not None:
+                        c['workingDir'] = default_work_dir
+
             containers.append(c)
             images.append(container_spec.image)
         # update imagePullSecrets
@@ -286,11 +394,12 @@ class KubernetesApi(object):
             pod_spec.imagePullSecrets = imagePullSecrets
         # construct kubernetes container specs
         for c, container_spec in zip(containers, container_spec_list):
+            envs = copy.deepcopy(initial_env) if initial_env else []
             if 'env' in container_spec:
-                envs = []
                 for line in container_spec['env']:
                     k, v = line.split('=')
                     envs.append({"name": k, "value": v})
+            if envs:
                 c.env = envs
 
             # create resource requests and limits(mainly for cpu and memory)
@@ -306,6 +415,8 @@ class KubernetesApi(object):
                     reqs['memory'] = container_spec.memory.request
                 if container_spec.memory.limit:
                     limits['memory'] = container_spec.memory.limit
+            if container_spec.gpu:
+                limits['nvidia.com/gpu'] = container_spec.gpu
             c.resources = {}
             if reqs:
                 c.resources['requests'] = reqs
@@ -313,12 +424,10 @@ class KubernetesApi(object):
                 c.resources['limits'] = limits
 
             # mount log dir
-            c.volumeMounts = []
-            log_mount = {
-                "name": "kae-log-volumes",
-                "mountPath": POD_LOG_DIR,
-            }
-            c.volumeMounts.append(log_mount)
+            if initial_vol_mounts is not None:
+                c.volumeMounts = copy.deepcopy(initial_vol_mounts)
+            else:
+                c.volumeMounts = []
             if 'volumes' in container_spec:
                 for container_path in container_spec['volumes']:
                     name = container_path.replace('/', '-').strip('-')
@@ -367,10 +476,11 @@ class KubernetesApi(object):
                     c.env.append(secret_ref)
 
         pod_spec.containers = containers
+        pod_spec.restartPolicy = restartPolicy
         return pod_spec
 
     @classmethod
-    def _create_deployment_dict(cls, spec, release_tag, version=None, renew_id=None):
+    def _create_deployment_dict(cls, spec, release_tag, spec_version_id, version=None, renew_id=None):
         appname = spec.appname
         svc = spec.service
         app_dir = os.path.join(HOST_VOLUMES_DIR, appname)
@@ -383,10 +493,11 @@ class KubernetesApi(object):
                 'name': appname,
                 'labels': {
                     'kae': 'true',
-                    'kae-app': appname,
+                    'kae-type': 'app',
+                    'kae-app-name': appname,
                 },
                 'annotations': {
-                    'app_specs_text': json.dumps(spec),
+                    'spec_version_id': str(spec_version_id),
                     'release_tag': release_tag,
                 }
             },
@@ -394,14 +505,15 @@ class KubernetesApi(object):
                 'replicas': svc.replicas,
                 'selector': {
                     'matchLabels': {
-                        'kae-app': appname,
+                        'kae-app-name': appname,
                     }
                 },
                 'template': {
                     'metadata': {
                         'labels': {
                             'kae': 'true',
-                            'kae-app': appname,
+                            'kae-type': 'app',
+                            'kae-app-name': appname,
                         },
                         'annotations': {
                         }
@@ -421,8 +533,16 @@ class KubernetesApi(object):
             obj.spec.progressDeadlineSeconds = svc.progressDeadlineSeconds
         if 'strategy' in svc:
             obj.spec.strategy = copy.deepcopy(svc.strategy)
+        if 'labels' in svc:
+            for line in svc.labels:
+                k, v = line.split('=')
+                obj.metadata.labels[k] = v
 
-        pod_spec = cls._construct_pod_spec(appname, app_dir, svc.containers)
+        log_mount = {
+            "name": "kae-log-volumes",
+            "mountPath": POD_LOG_DIR,
+        }
+        pod_spec = cls._construct_pod_spec(appname, app_dir, svc.containers, initial_vol_mounts=[log_mount])
         pod_spec.volumes.append(
             {
                 "name": "kae-log-volumes",
@@ -446,12 +566,13 @@ class KubernetesApi(object):
                 'name': appname,
                 'labels': {
                     'kae': 'true',
-                    'kae-app': appname,
+                    'kae-type': 'app',
+                    'kae-app-name': appname,
                 },
             },
             'spec': {
                 'selector': {
-                    'kae-app': appname,
+                    'kae-app-name': appname,
                 },
                 "ports": svc.ports
             }
@@ -470,10 +591,13 @@ class KubernetesApi(object):
                 'name': appname,
                 'labels': {
                     'kae': 'true',
-                    'kae-app': appname,
+                    'kae-type': 'app',
+                    'kae-app-name': appname,
                 },
             },
             "spec": {
+                "tls": [
+                ],
                 "rules": [
 
                 ]
@@ -509,29 +633,93 @@ class KubernetesApi(object):
                 }
             }
             obj.spec.rules.append(rule)
+        # setup tls
+        ingress_tls = {
+            "hosts": [
+                default_domain,
+            ],
+            "secretName": BASE_TLS_SECRET,
+        }
+        obj.spec.tls.append(ingress_tls)
         return obj
 
     @classmethod
     def _create_job_dict(cls, spec):
+        jobname = spec.jobname
+        job_dir = os.path.join(JOBS_ROOT_DIR, jobname)
+        if not os.path.exists(job_dir):
+            os.makedirs(job_dir)
+        output_dir = os.path.join(JOBS_OUPUT_ROOT_DIR, jobname)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        work_dir = os.path.join(job_dir, 'code')
+
+        initial_env = [
+            {
+                'name': 'JOB_NAME',
+                'value': jobname
+            },
+            {
+                'name': 'OUTPUT_DIR',
+                'value': output_dir
+            },
+            {
+                'name': 'WORK_DIR',
+                'value': os.path.join(job_dir, 'code')
+            },
+            {
+                'name': 'LC_ALL',
+                'value': 'en_US.UTF-8'
+            },
+            {
+                'name': 'LC_CTYPE',
+                'value': 'en_US.UTF-8'
+            },
+        ]
+        # when the .spec.template.spec.restartPolicy field is set to “OnFailure”, the back-off limit may be ineffective
+        # see https://github.com/kubernetes/kubernetes/issues/54870
+        restartPolicy = 'OnFailure' if spec.autoRestart else 'Never'
+
+        pod_spec = cls._construct_pod_spec(jobname, job_dir, spec.containers, restartPolicy=restartPolicy,
+                                           initial_env=initial_env, default_work_dir=work_dir)
+        # add more config for job
+        pod_spec.volumes.append(DFS_VOLUME)
+        for c in pod_spec.containers:
+            c.volumeMounts.append({
+                'name': 'cephfs',
+                'mountPath': DFS_MOUNT_DIR,
+            })
+
         obj = Dict({
             'apiVersion': 'batch/v1',
             'kind': 'Job',
             'metadata': {
                 # Unique key of the Job instance
                 'name': spec.jobname,
+                'labels': {
+                    'kae': 'true',
+                    'kae-type': 'job',
+                    'kae-job-name': spec.jobname,
+                },
             },
             'spec': {
+                # FIXME: a workaround to forbid job controller to create too many pods
+                #        see https://github.com/kubernetes/kubernetes/issues/62382
+                # 'activeDeadlineSeconds': 30,
                 'template': {
                     'metadata': {
                         'name': '{}-job'.format(spec.jobname),
+                        'labels': {
+                            'kae': 'true',
+                            'kae-type': 'job',
+                            'kae-job-name': spec.jobname,
+                        },
                     },
-                    # 'spec': { 'containers': None },
+                    'spec': pod_spec,
                 },
             }
         })
-        pod_spec = cls._construct_pod_spec(spec.jobname, None, spec.job.containers)
-        obj.spec.template.spec = pod_spec
         return obj
 
 
-kube_api = KubernetesApi(use_kubeconfig=USE_KUBECONFIG)
+kube_api = KubernetesApi()

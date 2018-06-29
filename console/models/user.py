@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+import requests
 from authlib.client.errors import OAuthException
 from flask import abort, session, request
 from sqlalchemy.exc import IntegrityError
@@ -8,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from console.config import OAUTH_APP_NAME, EMAIL_DOMAIN
 from console.ext import db, fetch_token, update_token, oauth_client, private_token_client
 from console.models.base import BaseModelMixin
+from console.libs.utils import logger
 
 
 def get_current_user():
@@ -26,7 +28,10 @@ def get_current_user():
             return None
         try:
             authlib_user = private_token_client.profile(raw_token)
+        except requests.HTTPError as e:
+            return abort(e.response.status_code, 'fetch {} profile failed, please check your api token: {}'.format(OAUTH_APP_NAME, e))
         except Exception as e:
+            logger.exception('fetch {} profile failed: {}'.format(OAUTH_APP_NAME, e))
             return abort(500, 'fetch {} profile failed: {}'.format(OAUTH_APP_NAME, e))
         user = User.set_authlib_user(authlib_user)
     else:
@@ -40,6 +45,7 @@ def get_current_user():
         except OAuthException as e:
             return abort(400, 'oauth exception: {}, your session has been reset'.format(e))
         except Exception as e:
+            logger.exception('fetch {} profile failed: {}'.format(OAUTH_APP_NAME, e))
             return abort(500, 'fetch {} profile failed: {}'.format(OAUTH_APP_NAME, e))
 
     session['user_id'] = user.id
@@ -120,6 +126,13 @@ class User(BaseModelMixin):
             return App.get_all()
         rs = AppUserRelation.query.filter_by(user_id=self.id)
         return [App.get_by_name(r.appname) for r in rs]
+
+    def list_job(self):
+        from console.models.job import JobUserRelation, Job
+        if self.privileged:
+            return Job.get_all()
+        rs = JobUserRelation.query.filter_by(user_id=self.id)
+        return [Job.get_by_name(r.jobname) for r in rs]
 
     def elevate_privilege(self):
         self.privileged = 1

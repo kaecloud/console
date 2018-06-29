@@ -47,6 +47,11 @@ flasgger = "*"
 greenlet = {version = "*", platform_python_implementation="=='CPython'"}
 gevent = "*"
 kubernetes = "*"
+flask-cors = "*"
+whitenoise = "*"
+celery = "*"
+flask-migrate = "*"
+flask-admin = "*"
 
 [requires]
 python_version = "3.5"

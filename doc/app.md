@@ -63,6 +63,8 @@ service:
     volumes:                      # volume files
       - /var/log
       - /etc/nginx/nginx.conf
+    dfsVolumes:
+      - /data
     secrets:
       envNameList: []          # envNameList and secretKeyList are one to one mapped
       secretKeyList: []

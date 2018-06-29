@@ -30,7 +30,7 @@ def list_users():
             {
               "username": "haha",
               "nickname": "dude",
-              "username": "name@example.com",
+              "email": "name@example.com",
               "avatar": "xxx.png",
               "privileged": True,
               "data": "ggg"
@@ -86,9 +86,9 @@ def me():
           $ref: '#/definitions/User'
         examples:
           application/json: {
-              "a username": "haha",
+              "username": "haha",
               "nickname": "dude",
-              "username": "name@example.com",
+              "email": "name@example.com",
               "avatar": "xxx.png",
               "privileged": True,
               "data": "ggg"

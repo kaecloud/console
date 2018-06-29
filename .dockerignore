@@ -18,5 +18,5 @@ migrations
 src
 .cache
 _book
-public
-node_modules
+frontend
+!frontend/dist

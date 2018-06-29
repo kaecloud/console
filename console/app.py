@@ -1,16 +1,29 @@
 # -*- coding: utf-8 -*-
 
 import yaml
+import json
 import logging
+
+from celery import Celery, Task
 from flask import jsonify, g, Flask, request
+from flask_cors import CORS
+from flask_migrate import Migrate
+from flask_admin import Admin
 from flasgger import Swagger
+from whitenoise import WhiteNoise
 
 from raven.contrib.flask import Sentry
 from werkzeug.utils import import_string
 
-from console.config import DEBUG, SENTRY_DSN
-from console.ext import sess, db, mako, cache, init_oauth
+from console.config import (
+    DEBUG, SENTRY_DSN, STATIC_DIR, TEMPLATE_DIR, TASK_PUBSUB_CHANNEL,
+    TASK_PUBSUB_EOF,
+)
+from console.ext import sess, db, mako, cache, init_oauth, rds
 from console.libs.datastructure import DateConverter
+from console.libs.jsonutils import VersatileEncoder
+from console.libs.utils import bearychat_sendmsg
+
 
 if DEBUG:
     loglevel = logging.DEBUG
@@ -25,7 +38,10 @@ logging.basicConfig(level=loglevel,
 
 api_blueprints = [
     'app',
+    'job',
     'user',
+    'home',
+    'cluster',
 ]
 
 swagger_yaml_template = """
@@ -65,6 +81,36 @@ definitions:
       git:
         type: string
       type:
+        type: string
+  Cluster:
+    type: object
+    properties:
+      id:
+        type: integer
+      created:
+        type: string
+      updated:
+        type: string
+      name:
+        type: string
+  Job:
+    type: object
+    properties:
+      id:
+        type: integer
+      created:
+        type: string
+      updated:
+        type: string
+      name:
+        type: string
+      git:
+        type: string
+      branch:
+        type: string
+      commit:
+        type: string
+      specs_text:
         type: string
   Error:
     type: object
@@ -148,8 +194,45 @@ definitions:
 """
 
 
+def make_celery(app):
+    celery = Celery(app.import_name)
+    celery.config_from_object('console.config')
+
+    class KAETask(Task):
+
+        abstract = True
+
+        def stream_output(self, data, task_id=None):
+            channel_name = TASK_PUBSUB_CHANNEL.format(task_id=task_id or self.request.id)
+            rds.publish(channel_name, json.dumps(data, cls=VersatileEncoder))
+
+        def on_success(self, retval, task_id, args, kwargs):
+            channel_name = TASK_PUBSUB_CHANNEL.format(task_id=task_id)
+            rds.publish(channel_name, TASK_PUBSUB_EOF.format(task_id=task_id))
+
+        def on_failure(self, exc, task_id, args, kwargs, einfo):
+            channel_name = TASK_PUBSUB_CHANNEL.format(task_id=task_id)
+            failure_msg = {'error': str(exc), 'args': args, 'kwargs': kwargs}
+            rds.publish(channel_name, json.dumps(failure_msg, cls=VersatileEncoder))
+            rds.publish(channel_name, TASK_PUBSUB_EOF.format(task_id=task_id))
+            msg = 'Console task {}:\nargs\n```\n{}\n```\nkwargs:\n```\n{}\n```\nerror message:\n```\n{}\n```'.format(self.name, args, kwargs, str(exc))
+            bearychat_sendmsg('platform', msg)
+
+        def __call__(self, *args, **kwargs):
+            with app.app_context():
+                return super(KAETask, self).__call__(*args, **kwargs)
+
+    celery.Task = KAETask
+    celery.autodiscover_tasks(['console'])
+    return celery
+
+
 def create_app():
-    app = Flask(__name__)
+    app = Flask(__name__, static_url_path='/static', static_folder=STATIC_DIR, template_folder=TEMPLATE_DIR)
+
+    # CORS(app)
+    cors = CORS(app, resources={r"/api/*": {"origins": "*"}})
+
     app.config['SWAGGER'] = {
         'title': 'KAE Console API',
         'uiversion': 3,
@@ -162,11 +245,18 @@ def create_app():
 
     app.url_map.strict_slashes = False
 
+    make_celery(app)
     db.init_app(app)
     init_oauth(app)
     mako.init_app(app)
     cache.init_app(app)
     sess.init_app(app)
+
+    migrate = Migrate(app, db)
+
+    from console.admin import init_admin
+    admin = Admin(app, name='KAE', template_mode='bootstrap3')
+    init_admin(admin)
 
     if not DEBUG:
         sentry = Sentry(dsn=SENTRY_DSN)
@@ -181,6 +271,15 @@ def create_app():
         g.start = request.args.get('start', type=int, default=0)
         g.limit = request.args.get('limit', type=int, default=20)
 
+    @app.after_request
+    def apply_caching(response):
+        # TODO: remove the code
+        response.headers['Access-Control-Allow-Origin'] = 'http://192.168.1.12:9090'
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Connection, User-Agent, Cookie'
+        response.headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
+        return response
+
     @app.errorhandler(422)
     def handle_unprocessable_entity(err):
         # webargs attaches additional metadata to the `data` attribute
@@ -194,26 +293,11 @@ def create_app():
             'messages': messages,
         }), 422
 
-    @app.route('/')
-    def hello_world():
-        return 'Hello world'
-
-    @app.route('/healthz')
-    def healthz():
-        """
-        health status
-        ---
-        security: []
-        responses:
-          200:
-            description: Health status
-            examples:
-              text/plain:
-                "ok"
-        """
-        return 'ok'
+    # add whitenoise
+    app.wsgi_app = WhiteNoise(app.wsgi_app, root=STATIC_DIR)
 
     return app
 
 
 app = create_app()
+celery = make_celery(app)

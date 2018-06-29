@@ -2,6 +2,7 @@
 
 import json
 import yaml
+from addict import Dict
 from sqlalchemy import event, DDL
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
@@ -9,7 +10,6 @@ from werkzeug.utils import cached_property
 
 from console.ext import db
 from console.libs.utils import logger
-from console.libs.k8s import kube_api
 from console.models.base import BaseModelMixin
 from console.models.specs import specs_schema
 
@@ -89,6 +89,7 @@ class App(BaseModelMixin):
 
         # delete all releases
         Release.query.filter_by(app_id=self.id).delete()
+        SpecVersion.query.filter_by(app_id=self.id).delete()
         # delete all permissions
         AppUserRelation.query.filter_by(appname=appname).delete()
         return super(App, self).delete()
@@ -210,6 +211,82 @@ class Release(BaseModelMixin):
             db.session.commit()
         except StaleDataError:
             db.session.rollback()
+
+
+class SpecVersion(BaseModelMixin):
+    # git tag
+    tag = db.Column(db.CHAR(64), nullable=False, index=True)
+    app_id = db.Column(db.Integer, nullable=False)
+    specs_text = db.Column(db.Text)
+
+    def __str__(self):
+        return 'SpecVersion <{r.appname}:{r.tag}:{r.id}>'.format(r=self)
+
+    @classmethod
+    def create(cls, app, tag, specs_text):
+        """app must be an App instance"""
+        if isinstance(specs_text, Dict):
+            specs_text = yaml.dump(specs_text.to_dict())
+        elif isinstance(specs_text, dict):
+            specs_text = yaml.dump(specs_text)
+        else:
+            # check the format of specs text(ignore the result)
+            specs_schema.load(yaml.load(specs_text))
+
+        try:
+            new_release = cls(tag=tag, app_id=app.id, specs_text=specs_text)
+            db.session.add(new_release)
+            db.session.commit()
+        except IntegrityError:
+            logger.warn('Fail to create SpecVersion %s %s, duplicate', app.name, tag)
+            db.session.rollback()
+            raise
+
+        return new_release
+
+    def delete(self):
+        logger.warn('Deleting release %s', self)
+        return super(SpecVersion, self).delete()
+
+    @classmethod
+    def get(cls, id):
+        r = super(SpecVersion, cls).get(id)
+        if r and r.app:
+            return r
+        return None
+
+    @classmethod
+    def get_by_app(cls, app, start=0, limit=None):
+        q = cls.query.filter_by(app_id=app.id).order_by(cls.id.desc())
+        if limit is None:
+            return q[start:]
+        else:
+            return q[start:start + limit]
+
+    def get_previous_version(self, n=0):
+        q_set = SpecVersion.query.filter(SpecVersion.id < self.id).order_by(SpecVersion.id.desc()).limit(n+1).all()
+        if len(q_set) <= n:
+            return None
+        else:
+            return q_set[n]
+
+    @property
+    def release(self):
+        return Release.query.filter_by(app_id=self.app_id, tag=self.tag).first()
+
+    @property
+    def app(self):
+        return App.get(self.app_id)
+
+    @property
+    def appname(self):
+        return self.app.name
+
+    @cached_property
+    def specs(self):
+        dic = yaml.load(self.specs_text)
+        unmarshal_result = specs_schema.load(dic)
+        return unmarshal_result.data
 
 
 class AppUserRelation(BaseModelMixin):

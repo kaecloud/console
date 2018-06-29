@@ -1,14 +1,23 @@
 # -*- coding: utf-8 -*-
+import os
+import re
 import time
 import json
 import string
 import random
+import shutil
 import logging
+from subprocess import Popen, PIPE, STDOUT, check_call, CalledProcessError
+
 import requests
+import docker
 from flask import session
 from functools import wraps
 
-from console.config import BOT_WEBHOOK_URL, LOGGER_NAME, DEBUG, DEFAULT_REGISTRY
+from console.config import (
+    BOT_WEBHOOK_URL, LOGGER_NAME, DEBUG, DEFAULT_REGISTRY, JOBS_LOG_ROOT_DIR,
+    REPO_DATA_DIR,
+)
 from console.libs.jsonutils import VersatileEncoder
 
 
@@ -64,7 +73,7 @@ def bearychat_sendmsg(to, content):
         "channel": to,
     }
     try:
-        res = requests.post(BOT_WEBHOOK_URL, data, headers={'Content-Type': 'application/json'})
+        res = requests.post(BOT_WEBHOOK_URL, json=data)
     except:
         logger.exception('Send bearychat msg failed')
         return
@@ -115,7 +124,7 @@ def generate_unique_dirname(prefix=None):
 
 def parse_image_name(image_name):
     parts = image_name.split('/', 1)
-    if '.' in parts[0]:
+    if len(parts) == 2 and '.' in parts[0]:
         return parts[0], parts[1]
     else:
         return None, image_name
@@ -134,3 +143,119 @@ def construct_full_image_name(name, appname):
                 return DEFAULT_REGISTRY.rstrip('/') + '/' + name
     else:
         return DEFAULT_REGISTRY.rstrip('/') + '/' + appname
+
+
+def get_job_log_versions(job_name):
+    log_dir = os.path.join(JOBS_LOG_ROOT_DIR, job_name)
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    versions = []
+    for filename in os.listdir(log_dir):
+        group = re.match(r'log\.(?P<id>\d+)\.txt', filename)
+        if group:
+            versions.append(int(group.group('id')))
+    return sorted(versions)
+
+
+def save_job_log(job_name, resp, version):
+    log_dir = os.path.join(JOBS_LOG_ROOT_DIR, job_name)
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    log_path = os.path.join(log_dir, 'log.{}.txt'.format(version))
+
+    with open(log_path, 'w') as f:
+        f.write(resp)
+
+
+def make_errmsg(msg, jsonize=False):
+    data = {'success': False, 'error': msg}
+    if jsonize:
+        return json.dumps(data)
+    else:
+        return data
+
+
+def make_msg(phase, raw_data=None, success=True, error=None, msg=None, progress=None, jsonize=False):
+    d = {
+        "success": success,
+        "phase": phase,
+        "raw_data": raw_data,
+        'progress': progress,
+        'msg': msg,
+        'error': error,
+    }
+    if jsonize:
+        return json.dumps(d) + '\n'
+    else:
+        return d
+
+
+class BuildError(Exception):
+    def __init__(self, data):
+        self.data = data
+
+    def __str__(self):
+        return self.data
+
+
+def build_image(appname, release):
+    git_tag = release.tag
+    specs = release.specs
+
+    if not specs.builds:
+        yield make_msg("Finished", msg="ignore empty builds")
+        return
+    if release.build_status:
+        yield make_msg("Finished", msg="already built")
+        return
+
+    # clone code
+    repo_dir = os.path.join(REPO_DATA_DIR, appname)
+    shutil.rmtree(repo_dir, ignore_errors=True)
+    p = Popen(['git',  'clone',  '--recursive', '--progress', release.git, repo_dir], stdout=PIPE,
+              stderr=STDOUT, env=os.environ.copy())
+
+    for line in iter(p.stdout.readline, ""):
+        if not line:
+            break
+        if isinstance(line, bytes):
+            line = line.decode('utf8')
+        line = line.strip(" \n")
+        yield make_msg("Cloning", msg=line)
+    p.wait()
+    if p.returncode:
+        raise BuildError(make_msg("Cloning", success=False, error="git clone error: {}".format(p.returncode)))
+
+    try:
+        check_call("git checkout {}".format(git_tag), shell=True, cwd=repo_dir)
+    except CalledProcessError as e:
+        raise BuildError(make_msg("Checkout", success=False, error="checkout tag error: {}".format(str(e))))
+
+    client = docker.APIClient(base_url="unix:///var/run/docker.sock")
+    for build in specs.builds:
+        image_name_no_tag = construct_full_image_name(build.name, appname)
+        image_tag = build.tag if build.tag else release.tag
+        dockerfile = build.dockerfile
+        if dockerfile is None:
+            dockerfile = os.path.join(repo_dir, "Dockerfile")
+        full_image_name = "{}:{}".format(image_name_no_tag, image_tag)
+
+        # use docker to build image
+        try:
+            for line in client.build(path=repo_dir, dockerfile=dockerfile, tag=full_image_name):
+                output_dict = json.loads(line.decode('utf8'))
+                if 'stream' in output_dict:
+                    yield make_msg("Building", raw_data=output_dict, msg=output_dict['stream'].rstrip("\n"))
+        except docker.errors.APIError as e:
+            raise BuildError(make_msg("Building", success=False, error="Building error: {}".format(str(e))))
+        try:
+            for line in client.push(full_image_name, stream=True):
+                output_dict = json.loads(line.decode('utf8'))
+                msg = "{}:{}\n".format(output_dict.get('id'), output_dict.get('status'))
+                yield make_msg("Pushing", raw_data=output_dict, msg=msg.rstrip("\n"))
+        except docker.errors.APIError as e:
+            raise BuildError(make_msg("Pushing", success=False, error="pushing error: {}".format(str(e))))
+        logger.debug("=========", full_image_name)
+    release.update_build_status(True)
+    yield make_msg("Finished", msg="build app {}'s release {} successfully".format(appname, git_tag))
+

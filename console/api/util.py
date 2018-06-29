@@ -2,99 +2,67 @@ import os
 import re
 import json
 import shutil
+from contextlib import contextmanager
 from subprocess import Popen, PIPE, STDOUT, check_call, CalledProcessError
 
+from flask import abort
 import docker
 import docker.errors
 
 from console.config import REPO_DATA_DIR
 from console.libs.utils import construct_full_image_name, logger
+from console.libs.k8s import ApiException
 
 
-def make_errmsg(msg):
-    return json.dumps({'success': False, 'error': msg}) + '\n'
-
-
-def make_msg(phase, raw_data=None, success=True, error=None, msg=None, progress=None):
-    d = {
-        "success": success,
-        "phase": phase,
-        "raw_data": raw_data,
-        'progress': progress,
-        'msg': msg,
-        'error': error,
-    }
-    return json.dumps(d) + '\n'
-
-
-class BuildError(Exception):
-    def __init__(self, errstr):
-        self.errstr = errstr
-
-    def __str__(self):
-        return self.errstr
-
-
-def build_image(appname, release):
-    git_tag = release.tag
-    specs = release.specs
-
-    if not specs.builds:
-        yield make_msg("Finished", msg="ignore empty builds")
-        return
-    if release.build_status:
-        yield make_msg("Finished", msg="already builded")
-        return
-
-    # clone code
-    repo_dir = os.path.join(REPO_DATA_DIR, appname)
-    shutil.rmtree(repo_dir, ignore_errors=True)
-    p = Popen(['git',  'clone',  '--recursive', '--progress', release.git, repo_dir], stdout=PIPE,
-              stderr=STDOUT, env=os.environ.copy())
-
-    for line in iter(p.stdout.readline, ""):
-        if not line:
-            break
-        if isinstance(line, bytes):
-            line = line.decode('utf8')
-        line = line.strip(" \n")
-        yield make_msg("Cloning", msg=line)
-    p.wait()
-    if p.returncode:
-        raise BuildError(make_msg("Cloning", success=False, error="git clone error: {}".format(p.returncode)))
-
+@contextmanager
+def handle_k8s_err(msg_prefix, clean_func=None):
     try:
-        check_call("git checkout {}".format(git_tag), shell=True, cwd=repo_dir)
-    except CalledProcessError as e:
-        raise BuildError(make_msg("Checkout", success=False, error="checkout tag error: {}".format(str(e))))
+        yield
+    except ApiException as e:
+        if clean_func:
+            clean_func()
+        logger.exception(msg_prefix)
+        abort(e.status, msg_prefix)
+    except Exception as e:
+        if clean_func:
+            clean_func()
+        logger.exception(msg_prefix)
+        abort(500, msg_prefix)
 
-    client = docker.APIClient(base_url="unix:///var/run/docker.sock")
-    for build in specs.builds:
-        image_name_no_tag = construct_full_image_name(build.name, appname)
-        image_tag = build.tag if build.tag else release.tag
-        dockerfile = build.dockerfile
-        if dockerfile is None:
-            dockerfile = os.path.join(repo_dir, "Dockerfile")
-        full_image_name = "{}:{}".format(image_name_no_tag, image_tag)
 
-        # use docker to build image
-        try:
-            for line in client.build(path=repo_dir, dockerfile=dockerfile, tag=full_image_name):
-                output_dict = json.loads(line.decode('utf8'))
-                if 'stream' in output_dict:
-                    yield make_msg("Building", raw_data=output_dict, msg=output_dict['stream'].rstrip("\n"))
-        except docker.errors.APIError as e:
-            raise BuildError(make_msg("Building", success=False, error="Building error: {}".format(str(e))))
-        try:
-            for line in client.push(full_image_name, stream=True):
-                output_dict = json.loads(line.decode('utf8'))
-                msg = "{}:{}\n".format(output_dict.get('id'), output_dict.get('status'))
-                yield make_msg("Pushing", raw_data=output_dict, msg=msg.rstrip("\n"))
-        except docker.errors.APIError as e:
-            raise BuildError(make_msg("Pushing", success=False, error="pushing error: {}".format(str(e))))
-        logger.debug("=========", full_image_name)
-    release.update_build_status(True)
-    yield make_msg("Finished", msg="build app {}'s release {} successfully".format(appname, git_tag))
+class CodeFetcher(object):
+    @classmethod
+    def _run_cmd(cls, args):
+        # clone code
+        p = Popen(args, stdout=PIPE, stderr=STDOUT, env=os.environ.copy())
+
+        for line in iter(p.stdout.readline, ""):
+            if not line:
+                break
+            if isinstance(line, bytes):
+                line = line.decode('utf8')
+            line = line.strip(" \n")
+            yield line
+        p.wait()
+        if p.returncode:
+            raise BuildError(make_msg("Cloning", success=False, error="git clone error: {}".format(p.returncode)))
+
+    @classmethod
+    def clone(cls, git, dest_dir, branch, commit):
+        shutil.rmtree(dest_dir, ignore_errors=True)
+        args = ['git',  'clone',  '--recursive', '--progress', git, dest_dir]
+        yield from cls._run_cmd(args)
+
+    @classmethod
+    def pull(cls, dest_dir, branch, commit):
+        pass
+
+    @classmethod
+    def clone_or_pull(cls, git, dest_dir, branch, commit):
+        if os.path.isdir(dest_dir):
+            yield from cls.pull(dest_dir, branch, commit)
+        else:
+            yield from cls.clone(git, dest_dir, branch, commit)
 
 
 class RemoteProgress(object):

@@ -5,22 +5,24 @@ import yaml
 import time
 
 from addict import Dict
-from flask import abort, g, Response, stream_with_context
+from flask import abort, g, Response, stream_with_context, current_app
 from marshmallow import ValidationError
 from sqlalchemy.exc import IntegrityError
 from webargs.flaskparser import use_args
 
 from console.libs.validation import (
     RegisterSchema, UserSchema, RollbackSchema, SecretSchema, ConfigMapSchema,
-    ScaleSchema, BuildArgsSchema, DeploySchema,
+    ScaleSchema, BuildArgsSchema, DeploySchema, ClusterArgSchema,
 )
+from console.libs import sse
+from console.libs.utils import logger, make_errmsg
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
-from console.models import App, Release, User, OPLog, OPType
+from console.models import App, Release, SpecVersion, User, OPLog, OPType
 from console.models.specs import load_specs
 from console.libs.k8s import kube_api
 from console.libs.k8s import ApiException
 from console.config import DEFAULT_REGISTRY
-from .util import build_image, BuildError, make_msg, make_errmsg
+from console.tasks import celery_task_stream_response, build_image
 
 bp = create_api_blueprint('app', __name__, 'app')
 
@@ -160,16 +162,44 @@ def rollback_app(args, appname):
             error: null
     """
     revision = args['revision']
+    cluster = args['cluster']
     app = get_app_raw(appname)
+
     try:
-        kube_api.rollback_app(appname, revision)
+        k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster)
     except ApiException as e:
-        abort(e.status, "Error when rollback kubernetes object: {}".format(str(e)))
-    except ValueError as e:
-        # FIXME: workaround for bug in kubernetes python client
-        pass
+        return abort(e.status, "Error when get kubernetes deployment: {}".format(str(e)))
     except Exception as e:
-        abort(500, "Error when rollback kubernetes object: {}".format(str(e)))
+        logger.exception("failed to get kubernetes deployment of app {}".format(appname))
+        return abort(500, "internal error")
+
+    version = k8s_deployment.metadata.resource_version
+
+    if k8s_deployment.spec.template.metadata.annotations is None:
+        renew_id = None
+    else:
+        renew_id = k8s_deployment.spec.template.metadata.annotations.get("renew_id", None)
+
+    try:
+        spec_version_id = int(k8s_deployment.metadata.annotations.get("spec_version_id", None))
+        spec_version = SpecVersion.get(spec_version_id)
+        prev_spec_version = spec_version.get_previous_version(revision)
+    except:
+        logger.exception("can't get previous spec version")
+        return abort(500, "internal error")
+
+    if prev_spec_version is None:
+        abort(403, "no previous version, so you can't rollback")
+
+    try:
+        kube_api.update_app(
+            appname, prev_spec_version.specs, prev_spec_version.tag, prev_spec_version.id,
+            cluster_name=cluster, version=version, renew_id=renew_id)
+    except ApiException as e:
+        abort(e.status, "Error when update app: {}".format(str(e)))
+    except Exception as e:
+        logger.exception("hahah")
+        abort(500, 'replace kubernetes deployment error: {}, {}'.format(str(e), version))
 
     OPLog.create(
         user_id=g.user.id,
@@ -182,8 +212,9 @@ def rollback_app(args, appname):
 
 
 @bp.route('/<appname>/renew', methods=['PUT'])
+@use_args(ClusterArgSchema())
 @user_require(False)
-def renew_app(appname):
+def renew_app(args, appname):
     """
     Force kubernetes to recreate the pods of specified app
     ---
@@ -201,9 +232,10 @@ def renew_app(appname):
           application/json:
             error: null
     """
+    cluster = args['cluster']
     app = get_app_raw(appname)
     try:
-        kube_api.renew_app(appname)
+        kube_api.renew_app(appname, cluster_name=cluster)
     except ApiException as e:
         abort(e.status, "Error when renew kubernetes object {}".format(str(e)))
     except Exception as e:
@@ -241,7 +273,7 @@ def delete_app(appname):
     app = get_app_raw(appname)
     tag = app.latest_release.tag if app.latest_release else ""
     try:
-        kube_api.delete_app(appname, app.type, ignore_404=True)
+        kube_api.delete_app(appname, app.type, ignore_404=True, cluster_name=kube_api.ALL_CLUSTER)
     except ApiException as e:
         abort(e.status, "Error when delete kubernetes object {}".format(str(e)))
     except Exception as e:
@@ -280,7 +312,7 @@ def get_app_users(appname):
             {
               "username": "haha",
               "nickname": "dude",
-              "username": "name@example.com",
+              "email": "name@example.com",
               "avatar": "xxx.png",
               "privileged": True,
               "data": "ggg"
@@ -376,14 +408,19 @@ def revoke_user(args, appname):
 
 
 @bp.route('/<appname>/pods')
+@use_args(ClusterArgSchema())
 @user_require(False)
-def get_app_pods(appname):
+def get_app_pods(args, appname):
     """
     Get all pods of the specified app
     ---
     parameters:
       - name: appname
         in: path
+        type: string
+        required: true
+      - name: cluster
+        in: query
         type: string
         required: true
     responses:
@@ -393,9 +430,107 @@ def get_app_pods(appname):
           application/json: [
           ]
     """
+    cluster = args['cluster']
     app = get_app_raw(appname)
+
     try:
-        return kube_api.get_app_pods(appname=appname)
+        return kube_api.get_app_pods(appname=appname, cluster_name=cluster)
+    except ApiException as e:
+        abort(e.status, "Error when get kubernetes pods object: {}".format(str(e)))
+    except Exception as e:
+        abort(500, str(e))
+
+
+@bp.route('/<appname>/pods/events')
+@use_args(ClusterArgSchema())
+@user_require(False)
+def get_app_pods_events(args, appname):
+    """
+    Get events of the pods belong to specified app
+    ---
+    parameters:
+      - name: appname
+        in: path
+        type: string
+        required: true
+      - name: cluster
+        in: query
+        type: string
+        required: true
+    responses:
+      200:
+        description: PodList object
+        examples:
+          application/json: [
+          ]
+    """
+    cluster = args['cluster']
+
+    @stream_with_context
+    def generator():
+        # channel = "kae-app-{}-pods-watcher".format(appname)
+        # for message in sse.messages(channel=channel):
+        #     yield str(message)
+
+        last_seen_version = None
+        label_selector = "kae-app-name={}".format(appname)
+        while True:
+            try:
+                if last_seen_version is not None:
+                    watcher = kube_api.watch_pods(cluster_name=cluster, label_selector=label_selector, resource_version=last_seen_version)
+                else:
+                    watcher = kube_api.watch_pods(cluster_name=cluster, label_selector=label_selector)
+
+                for event in watcher:
+                    obj = event['object']
+                    last_seen_version = obj.metadata.resource_version
+
+                    type = 'pod'
+                    data = {
+                        'object': event['raw_object'],
+                        'action': event['type'],
+                    }
+                    yield sse.make_msg(data, type)
+            except Exception as e:
+                logger.error("watch pods error: {}".format(str(e)))
+
+    return current_app.response_class(
+        generator(),
+        mimetype='text/event-stream',
+    )
+
+
+@bp.route('/<appname>/deployment')
+@use_args(ClusterArgSchema())
+@user_require(False)
+def get_app_deployment(args, appname):
+    """
+    Get kubernetes deployment object of the specified app
+    ---
+    parameters:
+      - name: appname
+        in: path
+        type: string
+        required: true
+      - name: cluster
+        in: query
+        type: string
+        required: true
+    responses:
+      200:
+        description: Deployment object
+        examples:
+          application/json: [
+          ]
+    """
+    cluster = args['cluster']
+    app = get_app_raw(appname)
+    if not app:
+        abort(404, "app {} not found".format(appname))
+    try:
+        return kube_api.get_deployment(appname=appname, cluster_name=cluster)
+    except ApiException as e:
+        abort(e.status, "Error when get kubernetes deployment object: {}".format(str(e)))
     except Exception as e:
         abort(500, str(e))
 
@@ -532,11 +667,12 @@ def create_secret(args, appname):
           application/json:
             error: null
     """
+    cluster = args['cluster']
     data = args['data']
     # check if the user can access the App
     get_app_raw(appname)
     try:
-        kube_api.create_or_update_secret(appname, data)
+        kube_api.create_or_update_secret(appname, data, cluster_name=cluster)
     except ApiException as e:
         abort(e.status, str(e))
     except Exception as e:
@@ -545,14 +681,19 @@ def create_secret(args, appname):
 
 
 @bp.route('/<appname>/secret')
+@use_args(ClusterArgSchema())
 @user_require(False)
-def get_secret(appname):
+def get_secret(args, appname):
     """
     get secret of specified app
     ---
     parameters:
       - name: appname
         in: path
+        type: string
+        required: true
+      - name: cluster
+        in: query
         type: string
         required: true
     responses:
@@ -564,10 +705,11 @@ def get_secret(appname):
             "aaa": "bbb"
           }
     """
+    cluster = args['cluster']
     # check if the user can access the App
     get_app_raw(appname)
     try:
-        return kube_api.get_secret(appname)
+        return kube_api.get_secret(appname, cluster_name=cluster)
     except ApiException as e:
         abort(e.status, str(e))
     except Exception as e:
@@ -600,12 +742,13 @@ def create_config_map(args, appname):
           application/json:
             error: null
     """
+    cluster = args['cluster']
     data = args['data']
     config_name = args['config_name']
     # check if the user can access the App
     get_app_raw(appname)
     try:
-        kube_api.create_or_update_config_map(appname, data, config_name=config_name)
+        kube_api.create_or_update_config_map(appname, data, config_name=config_name, cluster_name=cluster)
     except ApiException as e:
         abort(e.status, str(e))
     except Exception as e:
@@ -614,14 +757,19 @@ def create_config_map(args, appname):
 
 
 @bp.route('/<appname>/configmap')
+@use_args(ClusterArgSchema())
 @user_require(False)
-def get_config_map(appname):
+def get_config_map(args, appname):
     """
     get config of specified app
     ---
     parameters:
       - name: appname
         in: path
+        type: string
+        required: true
+      - name: cluster
+        in: query
         type: string
         required: true
     responses:
@@ -633,10 +781,11 @@ def get_config_map(appname):
            plain/text:
              "aaa=11"
     """
+    cluster = args['cluster']
     # check if the user can access the App
     get_app_raw(appname)
     try:
-        return kube_api.get_config_map(appname)
+        return kube_api.get_config_map(appname, cluster_name=cluster)
     except ApiException as e:
         abort(e.status, str(e))
     except Exception as e:
@@ -716,6 +865,10 @@ def register_release(args):
         app.grant_user(g.user)
     except IntegrityError as e:
         pass
+    except Exception as e:
+        logger.exception("failed to grant user {} to app {}".format(g.user.nickname, appname))
+        app.delete()
+        abort(500, "internal server error")
 
     default_release_image = None
     build_status = False if specs.builds else True
@@ -752,6 +905,9 @@ def scale_app(args, appname):
       ScaleArgs:
         type: object
         properties:
+          cluster:
+            type: string
+            required: true
           cpus:
             type: object
           memories:
@@ -781,84 +937,67 @@ def scale_app(args, appname):
         examples:
           error: "xxx"
     """
-    def generate():
-        app = App.get_by_name(appname)
-        if not app:
-            yield make_errmsg('app {} not found'.format(appname))
-            return
+    cluster = args['cluster']
+    app = App.get_by_name(appname)
+    if not app:
+        abort(404, 'app {} not found'.format(appname))
+    try:
+        k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster)
+    except ApiException as e:
+        abort(e.status, "Error when get deployment: {}".format(str(e)))
+    except Exception as e:
+        abort(500, "error when get deployment {}".format(str(e)))
 
-        try:
-            k8s_deplopyment = kube_api.get_deployment(appname)
-        except Exception as e:
-            yield make_errmsg("error when get deployment {}".format(str(e)))
-            return
+    release_tag = k8s_deployment.metadata.annotations['release_tag']
+    version = k8s_deployment.metadata.resource_version
 
-        release_tag = k8s_deplopyment.metadata.annotations['release_tag']
-        specs_text = k8s_deplopyment.metadata.annotations['app_specs_text']
+    try:
+        spec_version_id = int(k8s_deployment.metadata.annotations.get("spec_version_id", None))
+        spec_version = SpecVersion.get(spec_version_id)
+        spec_version = spec_version.get(spec_version_id)
+    except:
+        logger.exception("can't get previous spec version")
+        return abort(500, "internal error")
 
-        release = Release.get_by_app_and_tag(appname, release_tag)
-        specs = load_specs(json.loads(specs_text), release_tag)
+    release = Release.get_by_app_and_tag(appname, release_tag)
+    specs = spec_version.specs
 
-        # update current specs
-        replicas = args.get('replicas')
-        cpus = args.get('cpus')
-        memories = args.get('memories')
-        if not replicas:
-            replicas = k8s_deplopyment.spec.replicas
+    # update current specs
+    replicas = args.get('replicas')
+    cpus = args.get('cpus')
+    memories = args.get('memories')
+    if not replicas:
+        replicas = k8s_deployment.spec.replicas
 
-        try:
-            specs = _update_specs(specs, cpus, memories, replicas)
-        except IndexError:
-            yield make_errmsg("cpus or memories' index is larger than the number of containers")
-            return
+    try:
+        specs = _update_specs(specs, cpus, memories, replicas)
+    except IndexError:
+        abort(403, "cpus or memories' index is larger than the number of containers")
 
-        version = k8s_deplopyment.metadata.resource_version
-        if k8s_deplopyment.spec.template.metadata.annotations is None:
-            renew_id = None
-        else:
-            renew_id = k8s_deplopyment.spec.template.metadata.annotations.get("renew_id", None)
-        try:
-            kube_api.update_app(appname, specs, release_tag, version=version, renew_id=renew_id)
-        except Exception as e:
-            yield make_errmsg('replace kubernetes deployment error: {}, {}'.format(str(e), version))
-            return
+    if k8s_deployment.spec.template.metadata.annotations is None:
+        renew_id = None
+    else:
+        renew_id = k8s_deployment.spec.template.metadata.annotations.get("renew_id", None)
+    try:
+        kube_api.update_app(appname, specs, release_tag, spec_version.id, version=version, renew_id=renew_id, cluster_name=cluster)
+    except ApiException as e:
+        abort(e.status, "Error when update app: {}".format(str(e)))
+    except Exception as e:
+        abort(500, 'replace kubernetes deployment error: {}, {}'.format(str(e), version))
 
-        OPLog.create(
-            user_id=g.user.id,
-            appname=appname,
-            tag=release.tag,
-            action=OPType.SCALE_APP,
-            content="scale app `hello`(replicas {})".format(replicas)
-        )
-        while True:
-            time.sleep(2)
-            pods = kube_api.get_app_pods(appname=appname)
-            d = {
-                'error': None,
-                'pods': [],
-            }
-            ready_pods = 0
-            for item in pods.items:
-                name = item.metadata.name
-                status = item.status.phase
-                if item.status.container_statuses is None:
-                    continue
-                ready = sum([1 if c_status.ready else 0 for c_status in item.status.container_statuses])
-                pod = {
-                    'name': name,
-                    'status': status,
-                    'ready': ready,
-                }
-                d['pods'].append(pod)
-                if ready == len(item.status.container_statuses):
-                    ready_pods += 1
-            yield (json.dumps(d) + '\n')
-            if ready_pods == specs.service.replicas:
-                break
-    return Response(stream_with_context(generate()))
+    OPLog.create(
+        user_id=g.user.id,
+        appname=appname,
+        tag=release.tag,
+        action=OPType.SCALE_APP,
+        content="scale app `hello`(replicas {})".format(replicas)
+    )
+    return DEFAULT_RETURN_VALUE
 
 
-@bp.route('/<appname>/build', methods=['PUT'])
+# I know this api should use PUT or POST method, but SSE only support GET and
+# I don't want to use websocket for only one function
+@bp.route('/<appname>/build')
 @use_args(BuildArgsSchema())
 @user_require(False)
 def build_app(args, appname):
@@ -894,27 +1033,41 @@ def build_app(args, appname):
         examples:
           error: "xxx"
     """
-    def generate():
+    @stream_with_context
+    def generator():
         tag = args["tag"]
 
         app = App.get_by_name(appname)
         if not app:
-            yield make_errmsg('app {} not found'.format(appname))
+            yield sse.make_errmsg(make_errmsg('app {} not found'.format(appname)))
             return
 
         if not g.user.granted_to_app(app):
-            yield make_errmsg('You\'re not granted to this app, ask administrators for permission')
+            yield sse.make_errmsg(make_errmsg('You\'re not granted to this app, ask administrators for permission'))
             return
         release = app.get_release_by_tag(tag)
         if not release:
-            yield make_errmsg('release {} not found.'.format(tag))
+            yield sse.make_errmsg(make_errmsg('release {} not found.'.format(tag)))
             return
 
-        try:
-            yield from build_image(appname, release)
-        except BuildError as e:
-            yield str(e)
-    return Response(stream_with_context(generate()))
+        # try:
+        #     for msg in build_image(appname, release):
+        #         yield msg
+        # except BuildError as e:
+        #     yield str(e)
+        async_result = build_image.delay(appname, tag)
+        for m in celery_task_stream_response(async_result.task_id):
+            data = json.loads(m)
+            ty = 'build'
+            yield sse.make_msg(data, ty)
+
+        yield sse.make_close_msg("haha")
+
+    return current_app.response_class(
+        generator(),
+        mimetype='text/event-stream',
+    )
+    # return Response(generator())
 
 
 @bp.route('/<appname>/deploy', methods=['PUT'])
@@ -928,6 +1081,9 @@ def deploy_app(args, appname):
       DeployArgs:
         type: object
         properties:
+          cluster:
+            type: string
+            required: true
           tag:
             type: string
             required: true
@@ -962,92 +1118,84 @@ def deploy_app(args, appname):
         examples:
           error: "xxx"
     """
-    def generate():
-        tag = args["tag"]
-        specs_text = args.get('specs_text', None)
+    cluster = args['cluster']
+    tag = args["tag"]
+    specs_text = args.get('specs_text', None)
 
-        app = App.get_by_name(appname)
-        if not app:
-            yield make_errmsg('app {} not found'.format(appname))
-            return
+    app = App.get_by_name(appname)
+    if not app:
+        abort(404, 'app {} not found'.format(appname))
 
-        if not g.user.granted_to_app(app):
-            yield make_errmsg('You\'re not granted to this app, ask administrators for permission')
-            return
-        release = app.get_release_by_tag(tag)
-        if not release:
-            yield make_errmsg('release {} not found.'.format(tag))
-            return
+    if not g.user.granted_to_app(app):
+        abort(403, 'You\'re not granted to this app, ask administrators for permission')
+    release = app.get_release_by_tag(tag)
+    if not release:
+        abort(404, 'release {} not found.'.format(tag))
+
+    try:
+        k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, ignore_404=True)
+    except ApiException as e:
+        abort(e.status, "Error when get deployment: {}".format(str(e)))
+    except Exception as e:
+        abort(500, "error when get deployment {}".format(str(e)))
+
+    if specs_text:
         try:
-            k8s_deplopyment = kube_api.get_deployment(appname, ignore_404=True)
-        except Exception as e:
-            yield make_errmsg("error when get deployment {}".format(str(e)))
-            return
-
-        if specs_text:
-            try:
-                yaml_dict = yaml.load(release.specs_text)
-            except yaml.YAMLError as e:
-                yield make_errmsg('specs text is invalid yaml {}'.format(str(e)))
-                return
-            try:
-                specs = load_specs(yaml_dict, tag)
-            except ValidationError as e:
-                yield make_errmsg('specs text is invalid {}'.format(str(e)))
-                return
-        else:
-            specs = release.specs
-            # update specs from release
-            replicas = args.get('replicas')
-            cpus = args.get('cpus')
-            memories = args.get('memories')
-
-            # sometimes user may forget fo update replicas value after a scale operation,
-            # so if the spec from the release, we never scale down the deployments
-            if not replicas:
-                replicas = specs.service.replicas
-                if k8s_deplopyment is not None and k8s_deplopyment.spec.replicas > replicas:
-                    replicas = k8s_deplopyment.spec.replicas
-            try:
-                specs = _update_specs(specs, cpus, memories, replicas)
-            except IndexError:
-                yield make_errmsg("cpus or memories' index is larger than the number of containers")
-                return
-        if release.build_status is False:
-            try:
-                yield from build_image(appname, release)
-            except BuildError as e:
-                yield str(e)
-                return
-
-        if release.build_status is False:
-            yield make_errmsg("build image error")
-            return
-        # check secret and configmap
-        if specs_contains_secrets(specs):
-            try:
-                kube_api.get_secret(appname)
-            except Exception:
-                yield make_errmsg("can't get secret, pls ensure you've added secret for {}".format(appname))
-                return
-        if specs_contains_configmap(specs):
-            try:
-                kube_api.get_config_map(appname)
-            except Exception:
-                yield make_errmsg("can't get config, pls ensure you've added config for {}".format(appname))
-                return
-
+            yaml_dict = yaml.load(release.specs_text)
+        except yaml.YAMLError as e:
+            abort(403, 'specs text is invalid yaml {}'.format(str(e)))
         try:
-            kube_api.deploy_app(specs, release.tag)
-        except Exception as e:
-            yield make_errmsg('kubernetes error: {}'.format(str(e)))
-            return
+            specs = load_specs(yaml_dict, tag)
+        except ValidationError as e:
+            abort(403, 'specs text is invalid {}'.format(str(e)))
+    else:
+        specs = release.specs
+        # update specs from release
+        replicas = args.get('replicas')
+        cpus = args.get('cpus')
+        memories = args.get('memories')
 
-        OPLog.create(
-            user_id=g.user.id,
-            appname=appname,
-            tag=release.tag,
-            action=OPType.DEPLOY_APP,
-        )
-        yield make_msg("Finished", msg='Deploy Finished')
-    return Response(stream_with_context(generate()))
+        # sometimes user may forget fo update replicas value after a scale operation,
+        # so if the spec is from the release, we never scale down the deployments
+        if not replicas:
+            replicas = specs.service.replicas
+            if k8s_deployment is not None and k8s_deployment.spec.replicas > replicas:
+                replicas = k8s_deployment.spec.replicas
+        try:
+            specs = _update_specs(specs, cpus, memories, replicas)
+        except IndexError:
+            abort(403, "cpus or memories' index is larger than the number of containers")
+    if release.build_status is False:
+        abort(403, "please build release first")
+    # check secret and configmap
+    if specs_contains_secrets(specs):
+        try:
+            kube_api.get_secret(appname, cluster_name=cluster)
+        except Exception:
+            abort(403, "can't get secret, pls ensure you've added secret for {}".format(appname))
+    if specs_contains_configmap(specs):
+        try:
+            kube_api.get_config_map(appname, cluster_name=cluster)
+        except Exception:
+            abort(403, "can't get config, pls ensure you've added config for {}".format(appname))
+
+    try:
+        spec_version = SpecVersion.create(app, tag, specs)
+    except:
+        logger.exception("can't create spec version")
+        abort(500, "internal server error")
+
+    try:
+        kube_api.deploy_app(specs, release.tag, spec_version.id, cluster_name=cluster)
+    except ApiException as e:
+        abort(e.status, "Error when deploy app: {}".format(str(e)))
+    except Exception as e:
+        abort(500, 'kubernetes error: {}'.format(str(e)))
+
+    OPLog.create(
+        user_id=g.user.id,
+        appname=appname,
+        tag=release.tag,
+        action=OPType.DEPLOY_APP,
+    )
+    return DEFAULT_RETURN_VALUE
