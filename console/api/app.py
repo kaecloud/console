@@ -15,10 +15,10 @@ from console.libs.validation import (
     ScaleSchema, BuildArgsSchema, DeploySchema, ClusterArgSchema,
 )
 from console.libs import sse
-from console.libs.utils import logger, make_errmsg
+from console.libs.utils import logger, make_errmsg, make_sse_channel_name
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
 from console.models import App, Release, SpecVersion, User, OPLog, OPType
-from console.models.specs import load_specs
+from console.models.specs import fix_app_spec, app_specs_schema
 from console.libs.k8s import kube_api
 from console.libs.k8s import ApiException
 from console.config import DEFAULT_REGISTRY
@@ -206,7 +206,7 @@ def rollback_app(args, appname):
         appname=appname,
         tag=app.latest_release.tag,
         action=OPType.ROLLBACK_APP,
-        content='rollback ap `hello`(revision {})'.format(revision),
+        content='rollback app `hello`(revision {})'.format(revision),
     )
     return DEFAULT_RETURN_VALUE
 
@@ -251,7 +251,7 @@ def renew_app(args, appname):
 
 
 @bp.route('/<appname>', methods=['DELETE'])
-@user_require(False)
+@user_require(True)
 def delete_app(appname):
     """
     Delete a single app
@@ -468,35 +468,40 @@ def get_app_pods_events(args, appname):
 
     @stream_with_context
     def generator():
-        # channel = "kae-app-{}-pods-watcher".format(appname)
-        # for message in sse.messages(channel=channel):
-        #     yield str(message)
+        channel = make_sse_channel_name(cluster, appname)
+        for message in sse.messages(channel=channel):
+            yield str(message)
 
-        last_seen_version = None
-        label_selector = "kae-app-name={}".format(appname)
-        while True:
-            try:
-                if last_seen_version is not None:
-                    watcher = kube_api.watch_pods(cluster_name=cluster, label_selector=label_selector, resource_version=last_seen_version)
-                else:
-                    watcher = kube_api.watch_pods(cluster_name=cluster, label_selector=label_selector)
+        # last_seen_version = None
+        # label_selector = "kae-app-name={}".format(appname)
+        # while True:
+        #     try:
+        #         if last_seen_version is not None:
+        #             watcher = kube_api.watch_pods(cluster_name=cluster, label_selector=label_selector, resource_version=last_seen_version)
+        #         else:
+        #             watcher = kube_api.watch_pods(cluster_name=cluster, label_selector=label_selector)
 
-                for event in watcher:
-                    obj = event['object']
-                    last_seen_version = obj.metadata.resource_version
+        #         for event in watcher:
+        #             obj = event['object']
+        #             last_seen_version = obj.metadata.resource_version
 
-                    type = 'pod'
-                    data = {
-                        'object': event['raw_object'],
-                        'action': event['type'],
-                    }
-                    yield sse.make_msg(data, type)
-            except Exception as e:
-                logger.error("watch pods error: {}".format(str(e)))
+        #             type = 'pod'
+        #             data = {
+        #                 'object': event['raw_object'],
+        #                 'action': event['type'],
+        #             }
+        #             yield sse.make_msg(data, type)
+        #     except Exception as e:
+        #         logger.error("watch pods error: {}".format(str(e)))
 
+    headers = {
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    }
     return current_app.response_class(
         generator(),
         mimetype='text/event-stream',
+        headers=headers,
     )
 
 
@@ -817,6 +822,8 @@ def register_release(args):
             type: string
           author:
             type: string
+          force:
+            type: boolean
 
     parameters:
       - name: register_args
@@ -843,6 +850,7 @@ def register_release(args):
     branch = args.get('branch')
     commit_message = args.get('commit_message')
     author = args.get('author')
+    force = args['force']
 
     # check the format of specs
     try:
@@ -850,9 +858,11 @@ def register_release(args):
     except yaml.YAMLError as e:
         return abort(400, 'specs text is invalid yaml {}'.format(str(e)))
     try:
-        specs = load_specs(yaml_dict, tag)
+        specs = app_specs_schema.load(yaml_dict).data
+        fix_app_spec(specs, appname, tag)
     except ValidationError as e:
         return abort(400, 'specs text is invalid {}'.format(str(e)))
+
     # because some defaults may have added to specs, so we need update specs_text
     specs_text = yaml.dump(specs.to_dict())
 
@@ -860,7 +870,7 @@ def register_release(args):
     if not app:
         abort(400, 'Error during create an app (%s, %s, %s)' % (appname, git, tag))
     if app.type != specs.type:
-        abort(400, "Current app type is {} and You can't change it".format(app.type))
+        abort(400, "Current app type is {} and You can't change it to {}".format(app.type, specs.type))
     try:
         app.grant_user(g.user)
     except IntegrityError as e:
@@ -876,14 +886,23 @@ def register_release(args):
         if build.get("name") == appname:
             default_release_image = "{}/{}:{}".format(DEFAULT_REGISTRY.rstrip('/'), appname, tag)
 
-    try:
-        release = Release.create(app, tag, specs_text, image=default_release_image,
-                                 build_status=build_status,
-                                 branch=branch, author=author, commit_message=commit_message)
-    except IntegrityError as e:
-        return abort(400, 'release is duplicate')
-    except ValueError as e:
-        return abort(400, str(e))
+    release = Release.get_by_app_and_tag(appname, tag)
+    if not release:
+        try:
+            release = Release.create(app, tag, specs_text, image=default_release_image,
+                                     build_status=build_status,
+                                     branch=branch, author=author, commit_message=commit_message)
+        except IntegrityError as e:
+            return abort(400, 'concurrent conflict, please retry')
+        except ValueError as e:
+            return abort(400, str(e))
+    else:
+        if force is True:
+            release.update(specs_text, image=default_release_image,
+                           build_status=build_status,
+                           branch=branch, author=author, commit_message=commit_message)
+        else:
+            return abort(400, 'release is duplicate')
 
     OPLog.create(
         user_id=g.user.id,
@@ -1001,8 +1020,7 @@ def scale_app(args, appname):
 @use_args(BuildArgsSchema())
 @user_require(False)
 def build_app(args, appname):
-    """Build an image for the specified release, the API will return all docker
-    build messages, key frames as shown in the example responses
+    """Build an image for the specified release.
     ---
     definitions:
       BuildArgs:
@@ -1051,7 +1069,7 @@ def build_app(args, appname):
             return
 
         # try:
-        #     for msg in build_image(appname, release):
+        #     for msg in build_image_helper(appname, release):
         #         yield msg
         # except BuildError as e:
         #     yield str(e)
@@ -1145,7 +1163,8 @@ def deploy_app(args, appname):
         except yaml.YAMLError as e:
             abort(403, 'specs text is invalid yaml {}'.format(str(e)))
         try:
-            specs = load_specs(yaml_dict, tag)
+            specs = app_specs_schema.load(yaml_dict).data
+            fix_app_spec(specs, appname, tag)
         except ValidationError as e:
             abort(403, 'specs text is invalid {}'.format(str(e)))
     else:

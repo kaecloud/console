@@ -8,7 +8,7 @@ from humanfriendly import parse_size
 from marshmallow import ValidationError
 from telnetlib import Telnet
 
-from console.models.specs import specs_schema
+from console.models.specs import app_specs_schema
 
 
 # core_online = False
@@ -130,5 +130,5 @@ def make_specs(appname=default_appname,
     specs_dict = {k: copy.deepcopy(v) for k, v in specs_dict.items()
                   if v is not None}
     specs_string = yaml.dump(specs_dict)
-    unmarshal_result = specs_schema.load(specs_dict)
+    unmarshal_result = app_specs_schema.load(specs_dict)
     return unmarshal_result.data

@@ -11,7 +11,7 @@ from werkzeug.utils import cached_property
 from console.ext import db
 from console.libs.utils import logger
 from console.models.base import BaseModelMixin
-from console.models.specs import specs_schema
+from console.models.specs import app_specs_schema
 
 
 class App(BaseModelMixin):
@@ -117,7 +117,7 @@ class Release(BaseModelMixin):
         appname = app.name
 
         # check the format of specs text(ignore the result)
-        specs_schema.load(yaml.load(specs_text))
+        app_specs_schema.load(yaml.load(specs_text))
         misc = {
             'author': author,
             'commit_message': commit_message,
@@ -134,6 +134,25 @@ class Release(BaseModelMixin):
             raise
 
         return new_release
+
+    def update(self, specs_text, image=None, build_status=False, branch='', author='', commit_message=''):
+        """app must be an App instance"""
+        # check the format of specs text(ignore the result)
+        app_specs_schema.load(yaml.load(specs_text))
+        misc = {
+            'author': author,
+            'commit_message': commit_message,
+            'git': self.git,
+        }
+
+        try:
+            # self.specs_text = specs_text
+            super(Release, self).update(specs_text=specs_text, image=image, build_status=build_status, misc=json.dumps(misc))
+        except:
+            logger.warn('Fail to update Release %s %s', self.appname, self.tag)
+            db.session.rollback()
+            # raise
+        return self
 
     def delete(self):
         logger.warn('Deleting release %s', self)
@@ -197,7 +216,7 @@ class Release(BaseModelMixin):
     @cached_property
     def specs(self):
         dic = yaml.load(self.specs_text)
-        unmarshal_result = specs_schema.load(dic)
+        unmarshal_result = app_specs_schema.load(dic)
         return unmarshal_result.data
 
     @property
@@ -231,7 +250,7 @@ class SpecVersion(BaseModelMixin):
             specs_text = yaml.dump(specs_text)
         else:
             # check the format of specs text(ignore the result)
-            specs_schema.load(yaml.load(specs_text))
+            app_specs_schema.load(yaml.load(specs_text))
 
         try:
             new_release = cls(tag=tag, app_id=app.id, specs_text=specs_text)
@@ -285,7 +304,7 @@ class SpecVersion(BaseModelMixin):
     @cached_property
     def specs(self):
         dic = yaml.load(self.specs_text)
-        unmarshal_result = specs_schema.load(dic)
+        unmarshal_result = app_specs_schema.load(dic)
         return unmarshal_result.data
 
 

@@ -2,7 +2,7 @@ import pytest
 from pprint import pprint
 import yaml
 from console.libs.k8s import KubernetesApi, ApiException
-from console.models.specs import specs_schema
+from console.models.specs import app_specs_schema
 
 specs_text = """
 appname: hello
@@ -46,7 +46,7 @@ def compare_dict(d1, d2):
 
 def test_specs():
     dic = yaml.load(specs_text)
-    unmarshal_result = specs_schema.load(dic)
+    unmarshal_result = app_specs_schema.load(dic)
     d = unmarshal_result.data
     pprint(d, d.services)
 

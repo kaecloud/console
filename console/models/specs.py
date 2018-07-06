@@ -152,16 +152,30 @@ class ServiceSchema(StrictSchema):
 service_schema = ServiceSchema()
 
 
-class SpecsSchema(StrictSchema):
+class AppSpecsSchema(StrictSchema):
     appname = fields.Str(required=True)
     type = fields.Str(missing="worker", validate=validate_app_type)
-    git = fields.Str(required=True)
     builds = fields.List(fields.Nested(BuildSchema), missing=[])
     service = fields.Nested(ServiceSchema, required=True)
 
     @post_load
     def finalize(self, data):
-        """add defaults to fields, and then construct a Box"""
+        """add defaults to fields, and then construct a Dict"""
+        build_names = set()
+        for build in data["builds"]:
+            name = build.get("name", None)
+            if name:
+                if name in build_names:
+                    raise ValidationError("duplicate build name")
+                build_names.add(name)
+
+        if data["type"] == "web":
+            ports = data["service"]["ports"]
+            if len(ports) != 1:
+                ValidationError("web service should contain only one port")
+            for p in ports:
+                if p["port"] != 80:
+                    raise ValidationError("port of web service must be 80")
         return Dict(data)
 
     @validates_schema
@@ -170,47 +184,37 @@ class SpecsSchema(StrictSchema):
         pass
 
 
-specs_schema = SpecsSchema()
+app_specs_schema = AppSpecsSchema()
 
 
-def load_specs(raw_data, tag):
+def fix_app_spec(spec, appname, tag):
     """
-    add defaults to fields, and then construct a Dict
-    :param raw_data:
-    :param tag: release tag
+    override some fields of the spec
+    - appname
+    - set build tag if necessary
+    - set image for container if necessary
+    :param spec:
+    :param appname:
+    :param git:
+    :param tag:
     :return:
     """
-    data = specs_schema.load(raw_data).data
-    appname = data['appname']
-    build_names = set()
-    for build in data["builds"]:
-        name = build.get("name", None)
-        if name:
-            if name in build_names:
-                raise ValidationError("duplicate build name")
-            build_names.add(name)
-            if name == appname:
-                # overwrite the tag the release tag
-                build['tag'] = tag
-    default_release_image = None
-    if appname in build_names:
-        default_release_image = "{}/{}:{}".format(DEFAULT_REGISTRY.rstrip('/'), appname, tag)
+    spec['appname'] = appname
 
-    if data["type"] == "web":
-        ports = data["service"]["ports"]
-        if len(ports) != 1:
-            ValidationError("web service should contain only one port")
-        for p in ports:
-            if p["port"] != 80:
-                raise ValidationError("port of web service must be 80")
-    containers = data["service"]["containers"]
+    default_release_image = None
+    for build in spec["builds"]:
+        name = build.get("name", None)
+        if name == appname:
+            # overwrite the build tag to release tag
+            build['tag'] = tag
+            default_release_image = "{}/{}:{}".format(DEFAULT_REGISTRY.rstrip('/'), appname, tag)
+
+    containers = spec["service"]["containers"]
     for container in containers:
         if "image" not in container:
             if not default_release_image:
                 raise ValidationError("you must set image for container")
             container["image"] = default_release_image
-
-    return Dict(data)
 
 
 class JobSchema(StrictSchema):

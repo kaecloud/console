@@ -4,7 +4,6 @@
 ```yaml
 appname: {APP_NAME}                  # global unique name
 type: worker                         # web, worker and job are allowed, default is worker
-git: {GIT_URL}                       # required, remote git repository url
 
 builds:                             # spec for building image
 - name: {NAME}:                     # image name, if it equal appname, then tag must be ignored.

@@ -145,8 +145,8 @@ CACHE_REDIS_URL = REDIS_URL
 HOST_VOLUMES_DIR = os.path.join(HOST_DATA_DIR, "volumes")
 REPO_DATA_DIR = "/tmp/repo-data"
 
-if not os.path.exists(REPO_DATA_DIR):
-    os.makedirs(REPO_DATA_DIR)
+# create dir if not exists
+pathlib.Path(REPO_DATA_DIR).mkdir(parents=True, exist_ok=True)
 
 
 def setup_config_from_secrets():

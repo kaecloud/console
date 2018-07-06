@@ -89,6 +89,7 @@ class RegisterSchema(StrictSchema):
     branch = fields.Str()
     commit_message = fields.Str()
     author = fields.Str()
+    force = fields.Bool(missing=False)
 
 
 def parse_memory(s):

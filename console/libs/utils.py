@@ -7,7 +7,7 @@ import string
 import random
 import shutil
 import logging
-from subprocess import Popen, PIPE, STDOUT, check_call, CalledProcessError
+from subprocess import Popen, PIPE, STDOUT, run, CalledProcessError
 
 import requests
 import docker
@@ -167,6 +167,10 @@ def save_job_log(job_name, resp, version):
         f.write(resp)
 
 
+def make_sse_channel_name(cluster, appname):
+    return "kae-cluster-{}-app-{}-pods-watcher".format(cluster, appname)
+
+
 def make_errmsg(msg, jsonize=False):
     data = {'success': False, 'error': msg}
     if jsonize:
@@ -198,7 +202,7 @@ class BuildError(Exception):
         return self.data
 
 
-def build_image(appname, release):
+def build_image_helper(appname, release):
     git_tag = release.tag
     specs = release.specs
 
@@ -227,7 +231,11 @@ def build_image(appname, release):
         raise BuildError(make_msg("Cloning", success=False, error="git clone error: {}".format(p.returncode)))
 
     try:
-        check_call("git checkout {}".format(git_tag), shell=True, cwd=repo_dir)
+        run(
+            "git checkout {}".format(git_tag), shell=True,
+            check=True, cwd=repo_dir, stdout=PIPE, stderr=STDOUT,
+            universal_newlines=True,
+        )
     except CalledProcessError as e:
         raise BuildError(make_msg("Checkout", success=False, error="checkout tag error: {}".format(str(e))))
 

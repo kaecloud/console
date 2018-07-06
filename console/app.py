@@ -274,7 +274,7 @@ def create_app():
     @app.after_request
     def apply_caching(response):
         # TODO: remove the code
-        response.headers['Access-Control-Allow-Origin'] = 'http://192.168.1.12:9090'
+        response.headers['Access-Control-Allow-Origin'] = 'http://127.0.0.1:9090'
         response.headers['Access-Control-Allow-Credentials'] = 'true'
         response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Connection, User-Agent, Cookie'
         response.headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'

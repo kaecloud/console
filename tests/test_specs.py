@@ -3,7 +3,7 @@
 import pytest
 from marshmallow import ValidationError
 import yaml
-from console.models.specs import ContainerSpec, specs_schema, UpdateStrategy
+from console.models.specs import ContainerSpec, app_specs_schema, UpdateStrategy
 
 
 # def test_container_spec():

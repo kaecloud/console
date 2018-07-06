@@ -1,5 +1,5 @@
 [[source]]
-url = "https://mirrors.aliyun.com/pypi/simple"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 verify_ssl = true
 name = "pypi"
 
@@ -37,7 +37,6 @@ wrapt = "*"
 pyparsing = "*"
 crontab = "*"
 webargs = "*"
-marshmallow = "*"
 python-redis-lock = "*"
 addict = "*"
 docker = "*"
@@ -52,6 +51,7 @@ whitenoise = "*"
 celery = "*"
 flask-migrate = "*"
 flask-admin = "*"
+marshmallow = "*"
 
 [requires]
 python_version = "3.5"

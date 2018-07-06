@@ -23,7 +23,7 @@ spec:
       serviceAccountName: kae-console-serviceaccount
       containers:
       - name: kae-console
-        image: yuyang0/kae-console:0.0.1-alpha3
+        image: yuyang0/kae-console:0.0.1-alpha4
         imagePullPolicy: Always
         ports:
         - containerPort: 5000
@@ -39,6 +39,20 @@ spec:
             port: 5000
           initialDelaySeconds: 10
           timeoutSeconds: 10
+        volumeMounts:
+        - name: docker-sock-volume
+          mountPath: /var/run/docker.sock
+        - name: kae-console-secret-vol
+          mountPath: /etc/k8s-secret-volume
+      - name: kae-pods-watcher
+        image: yuyang0/kae-console:0.0.1-alpha4
+        imagePullPolicy: Always
+        command: ['sh', 'bin/run-pods-watcher']
+        args:
+          # Uncomment the following line to manually specify Kubernetes API server Host
+          # If not specified, Dashboard will attempt to auto discover the API server and connect
+          # to it. Uncomment only if the default does not work.
+          # - --apiserver-host=http://my-address:port
         volumeMounts:
         - name: docker-sock-volume
           mountPath: /var/run/docker.sock

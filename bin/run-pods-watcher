@@ -1,0 +1,2 @@
+#!/bin/sh
+exec python -m console.bin.watch_pods $@
