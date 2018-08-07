@@ -15,6 +15,8 @@ from console.models.user import User
 class OPType(enum.Enum):
     REGISTER_RELEASE = 'register_release'
     DEPLOY_APP = "deploy_app"
+    DEPLOY_APP_CANARY = "deploy_app_canary"
+    DELETE_APP_CANARY = "delete_app_canary"
     UPGRADE_APP = "upgrade_app"
     SCALE_APP = "scale_app"
     DELETE_APP = "delete_app"
@@ -37,7 +39,7 @@ class OPLog(BaseModelMixin):
         query operation logs, all fields could be used as query parameters
         '''
         purge_none_val_from_dict(kwargs)
-        limit = kwargs.pop('limit', 200)
+        limit = kwargs.pop('limit', 100)
         time_window = kwargs.pop('time_window', None)
 
         filters = [getattr(cls, k) == v for k, v in kwargs.items()]

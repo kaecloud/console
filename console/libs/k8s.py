@@ -1,4 +1,6 @@
 import os
+import time
+import yaml
 import logging
 import json
 import base64
@@ -13,9 +15,10 @@ import redis_lock
 from console.config import (
     HOST_VOLUMES_DIR, POD_LOG_DIR, BASE_DOMAIN, BASE_TLS_SECRET,
     REGISTRY_AUTHS, DFS_VOLUME, DFS_MOUNT_DIR, JOBS_ROOT_DIR, JOBS_OUPUT_ROOT_DIR,
+    INGRESS_ANNOTATIONS_PREFIX,
 )
 from console.ext import rds
-from .utils import parse_image_name, id_generator
+from .utils import parse_image_name, id_generator, make_canary_appname
 
 
 def safe(f):
@@ -33,6 +36,7 @@ def safe(f):
 class KubernetesApi(object):
     _INSTANCE = None
     ALL_CLUSTER = "__all_cluster__"
+    DEFAULT_CLUSTER = "__default_cluster__"
 
     def __init__(self):
         self.cluster_map = {}
@@ -74,6 +78,7 @@ class KubernetesApi(object):
             extensions_api = client.ExtensionsV1beta1Api()
             batch_api = client.BatchV1Api()
             self.cluster_map['default'] = ClientApiBundle('default', core_v1api, extensions_api, batch_api)
+            self.default_cluster_name = "default"
 
     def __getattr__(self, item):
         def wrapper(*args, **kwargs):
@@ -84,14 +89,14 @@ class KubernetesApi(object):
                     func = getattr(cluster, item)
                     results[name] = func(*args, **kwargs)
                 return results
-            else:
-                cluster = self.cluster_map.get(cluster_name, None)
-                if cluster is None:
-                    raise Exception("cluster {} is not available".format(cluster_name))
-                # if cluster is None and len(self.cluster_map) == 1:
-                #     cluster = list(self.cluster_map.values())[0]
-                func = getattr(cluster, item)
-                return func(*args, **kwargs)
+
+            if cluster_name == self.DEFAULT_CLUSTER:
+                cluster_name = self.default_cluster_name
+            cluster = self.cluster_map.get(cluster_name, None)
+            if cluster is None:
+                raise Exception("cluster {} is not available".format(cluster_name))
+            func = getattr(cluster, item)
+            return func(*args, **kwargs)
         return wrapper
 
 
@@ -137,8 +142,8 @@ class ClientApiBundle(object):
         label_selector = "kae-job-name={}".format(jobname)
         return self.core_v1api.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
 
-    def get_app_pods(self, appname, namespace="default"):
-        label_selector = "kae-app-name={}".format(appname)
+    def get_app_pods(self, name, namespace="default"):
+        label_selector = "kae-app-name={}".format(name)
         return self.core_v1api.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
 
     def watch_pods(self, label_selector=None, **kwargs):
@@ -256,17 +261,100 @@ class ClientApiBundle(object):
         self.extensions_api.replace_namespaced_deployment(name=appname, namespace=namespace, body=deployment)
 
     @safe
-    def deploy_app(self, spec, release_tag, spec_version_id):
+    def deploy_app(self, spec, release_tag, spec_version_id, namespace="default"):
         deployments, services, ingress = self.create_resource_dict(spec, release_tag, spec_version_id)
         for d in deployments:
-            self.apply(d)
+            self.apply(d, namespace=namespace)
         for s in services:
-            self.apply(s)
+            self.apply(s, namespace=namespace)
         for i in ingress:
-            self.apply(i)
+            self.apply(i, namespace=namespace)
+
+    @safe
+    def deploy_app_canary(self, spec, release_tag, namespace="default"):
+        """
+        create Canary Deployment for specified app.
+        1. create a k8s Deployment named `<appname>-canary`
+        2. create a k8s Service named `<appname>-canary`
+        :param spec:
+        :return:
+        """
+        canary_appname = make_canary_appname(spec['appname'])
+        spec_copy = copy.deepcopy(spec)
+        spec_copy['appname'] = canary_appname
+
+        dp_annotations = {
+            'spec': yaml.dump(spec_copy.to_dict()),
+            'release_tag': release_tag,
+        }
+        dp_dict = self._create_deployment_dict(spec_copy, annotations=dp_annotations)
+        svc_dict = self._create_service_dict(spec_copy)
+
+        self.apply(dp_dict, namespace=namespace)
+        self.apply(svc_dict, namespace=namespace)
+
+    def set_abtesting_rules(self, appname, rules, namespace="default"):
+        canary_appname = make_canary_appname(appname)
+        annotations_key = "{}/abtesting".format(INGRESS_ANNOTATIONS_PREFIX)
+        ing = self.extensions_api.read_namespaced_ingress(appname, namespace=namespace)
+        data = {
+            "backend": {
+                "service": canary_appname,
+                # for web app, the service port is 80
+                "port": 80,
+            },
+            "rules": rules,
+        }
+        annotations = ing.metadata.annotations if ing.metadata.annotations else {}
+        annotations[annotations_key] = json.dumps(data)
+        ing.metadata.annotations = annotations
+        self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=namespace)
+
+    def get_abtesting_rules(self, appname, namespace="default"):
+        annotations_key = "{}/abtesting".format(INGRESS_ANNOTATIONS_PREFIX)
+        ing = self.extensions_api.read_namespaced_ingress(appname, namespace=namespace)
+        annotations = ing.metadata.annotations if ing.metadata.annotations else {}
+        full_rules_str = annotations.get(annotations_key, None)
+        if full_rules_str is None:
+            return None
+        full_rules = json.loads(full_rules_str)
+        return full_rules.get("rules", None)
+
+    @safe
+    def delete_app_canary(self, appname, namespace="default", ignore_404=False):
+        canary_appname = make_canary_appname(appname)
+        annotations_key = "{}/abtesting".format(INGRESS_ANNOTATIONS_PREFIX)
+        ing = self.extensions_api.read_namespaced_ingress(appname, namespace=namespace)
+
+        annotations = ing.metadata.annotations if ing.metadata.annotations else {}
+        if annotations_key in annotations:
+            ing.metadata.annotations.pop(annotations_key)
+            self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=namespace)
+            # the nginx-ingress needs about 1 seconds to detect the change of the ingress
+            time.sleep(1)
+        try:
+            self.core_v1api.delete_namespaced_service(
+                name=canary_appname, namespace=namespace,
+                body=client.V1DeleteOptions(propagation_policy="Foreground",
+                                            grace_period_seconds=5))
+        except ApiException as e:
+            if not (e.status == 404 and ignore_404 is True):
+                raise e
+        try:
+            self.extensions_api.delete_namespaced_deployment(
+                name=canary_appname, namespace=namespace,
+                body=client.V1DeleteOptions(propagation_policy="Foreground",
+                                            grace_period_seconds=5))
+        except ApiException as e:
+            if not (e.status == 404 and ignore_404 is True):
+                raise e
 
     def update_app(self, appname, spec, release_tag, spec_version_id, namespace='default', version=None, renew_id=None):
-        d = self._create_deployment_dict(spec, release_tag, spec_version_id, version=version, renew_id=renew_id)
+        dp_annotations = {
+            'spec_version_id': str(spec_version_id),
+            'release_tag': release_tag,
+        }
+        d = self._create_deployment_dict(spec, version=version, renew_id=renew_id, annotations=dp_annotations)
         self.extensions_api.replace_namespaced_deployment(name=appname, namespace=namespace, body=d)
 
     @safe
@@ -325,15 +413,15 @@ class ClientApiBundle(object):
             if e.status != 404:
                 raise e
 
-    def get_deployment(self, appname, namespace='default', ignore_404=False):
+    def get_deployment(self, name, namespace='default', ignore_404=False):
         """
         get kubernetes deployment object
-        :param appname:
+        :param name:
         :param namespace:
         :return:
         """
         try:
-            return self.extensions_api.read_namespaced_deployment(name=appname, namespace=namespace)
+            return self.extensions_api.read_namespaced_deployment(name=name, namespace=namespace)
         except ApiException as e:
             if e.status == 404 and ignore_404 is True:
                 return None
@@ -348,7 +436,11 @@ class ClientApiBundle(object):
         apptype = spec.type
 
         if apptype in ("web", "worker"):
-            obj = cls._create_deployment_dict(spec, release_tag, spec_version_id)
+            dp_annotations = {
+                'spec_version_id': str(spec_version_id),
+                'release_tag': release_tag,
+            }
+            obj = cls._create_deployment_dict(spec, annotations=dp_annotations)
             deployments.append(obj)
 
             obj = cls._create_service_dict(spec)
@@ -480,11 +572,14 @@ class ClientApiBundle(object):
         return pod_spec
 
     @classmethod
-    def _create_deployment_dict(cls, spec, release_tag, spec_version_id, version=None, renew_id=None):
+    def _create_deployment_dict(cls, spec, version=None, renew_id=None, annotations=None):
         appname = spec.appname
         svc = spec.service
         app_dir = os.path.join(HOST_VOLUMES_DIR, appname)
         host_kae_log_dir = os.path.join(app_dir, POD_LOG_DIR[1:])
+
+        if annotations is None:
+            annotations = {}
 
         obj = Dict({
             'apiVersion': 'extensions/v1beta1',
@@ -496,10 +591,7 @@ class ClientApiBundle(object):
                     'kae-type': 'app',
                     'kae-app-name': appname,
                 },
-                'annotations': {
-                    'spec_version_id': str(spec_version_id),
-                    'release_tag': release_tag,
-                }
+                'annotations': annotations
             },
             'spec': {
                 'replicas': svc.replicas,
@@ -722,4 +814,4 @@ class ClientApiBundle(object):
         return obj
 
 
-kube_api = KubernetesApi()
+kube_api = KubernetesApi.instance()

@@ -101,7 +101,9 @@ def celery_task_stream_response(celery_task_ids):
         # omit the initial message where item['data'] is 1L
         if not isinstance(raw_content, (bytes, str)):
             continue
-        content = raw_content.decode('utf-8')
+        content = raw_content
+        if isinstance(content, bytes):
+            content = content.decode('utf-8')
         logger.debug('Got pubsub message: %s', content)
         # task will publish TASK_PUBSUB_EOF at success or failure
         if content.startswith('CELERY_TASK_DONE'):

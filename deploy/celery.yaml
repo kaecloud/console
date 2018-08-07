@@ -23,7 +23,7 @@ spec:
       - name: kae-console-celery
         image: yuyang0/kae-console:0.0.1-alpha4
         imagePullPolicy: Always
-        command: ["celery", "-A", "console.app:celery", "worker", "--autoscale=4,2", "-B"]
+        command: ["celery", "-A", "console.app:celery", "worker", "--autoscale=4,1", "-B"]
         args:
           # Uncomment the following line to manually specify Kubernetes API server Host
           # If not specified, Dashboard will attempt to auto discover the API server and connect

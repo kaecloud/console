@@ -145,6 +145,10 @@ def construct_full_image_name(name, appname):
         return DEFAULT_REGISTRY.rstrip('/') + '/' + appname
 
 
+def make_canary_appname(appname):
+    return "{}-canary".format(appname)
+
+
 def get_job_log_versions(job_name):
     log_dir = os.path.join(JOBS_LOG_ROOT_DIR, job_name)
     if not os.path.exists(log_dir):
@@ -167,7 +171,7 @@ def save_job_log(job_name, resp, version):
         f.write(resp)
 
 
-def make_sse_channel_name(cluster, appname):
+def make_app_watcher_channel_name(cluster, appname):
     return "kae-cluster-{}-app-{}-pods-watcher".format(cluster, appname)
 
 

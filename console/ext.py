@@ -11,12 +11,15 @@ from flask_caching import Cache
 from flask_mako import MakoTemplates
 from flask_session import Session
 from flask_sqlalchemy import SQLAlchemy
+from flask_sockets import Sockets
+
 from redis import StrictRedis
 
 from console.config import REDIS_URL, OAUTH_APP_NAME, GITLAB_HOST
 
 
 db = SQLAlchemy()
+sockets = Sockets()
 mako = MakoTemplates()
 rds = StrictRedis.from_url(REDIS_URL)
 

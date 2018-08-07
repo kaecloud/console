@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import re
+import numbers
 from humanfriendly import parse_size, InvalidSize
 from marshmallow import fields, validates_schema, ValidationError
 from numbers import Number
@@ -32,6 +33,87 @@ def validate_secret_data(dd):
             raise ValidationError("value of secret should be string or bytes")
         if not isinstance(k, (bytes, str)):
             raise ValidationError("key of secret should be string or bytes")
+
+
+def validate_abtesting_rules(dd):
+    """
+    the format of  dd is:
+    {
+        "domain1": {
+            "type": "ua",
+            "op": "regex",
+            "op_args": "xxx",
+            "get_args": "xxx"
+        }
+    }
+    :param dd:
+    :return:
+    """
+    def check_op(op, op_args):
+        if op in ('equal', 'not_equal'):
+            if not (isinstance(op_args, str) or isinstance(op_args, numbers.Number)):
+                raise ValidationError("invalid argument for {} op, only string and numbers are allowed".format(op))
+        elif op in ('regex', 'not_regex'):
+            if not isinstance(op_args, str):
+                raise ValidationError("op argument {} is not regex pattern".format(op_args))
+        elif op in ('range', 'not_range'):
+            if (not isinstance(op_args, dict)) or \
+                "start" not in op_args or \
+                "end" not in op_args:
+                raise ValidationError("invalid argument for {} op".format(op))
+            if op_args["start"] >= op_args["end"]:
+                raise ValidationError("the left bound can't bigger than the right bound of RANG")
+        elif op not in ('oneof', "not_oneof"):
+            if not (isinstance(op_args, list) or isinstance(op_args, tuple)):
+                raise ValidationError("invalid argument for {} op, only list and tuple are allowed".format(op))
+        else:
+            raise ValidationError("unknown op {}".format(op))
+
+    def check_ua(op, op_args, get_args):
+        if op not in ('equal', 'not_equal', 'regex', 'not_regex', 'oneof', 'not_oneof'):
+            raise ValidationError("invalid op for ua rule, only equal, regex, oneof and its reverse op are allowed")
+        check_op(op, op_args)
+
+    def check_ip(op, op_args, get_args):
+        if op not in ('equal', 'not_equal', 'range', 'not_range', 'oneof', 'not_oneof'):
+            raise ValidationError("invalid op for ip rule, only equal, range, oneof and its reverse op are allowed")
+        check_op(op, op_args)
+
+    def check_header(op, op_args, get_args):
+        if not isinstance(get_args, str):
+            raise ValidationError("get argument for header op must be a string")
+        check_op(op, op_args)
+
+    def check_cookie(op, op_args, get_args):
+        if not isinstance(get_args, str):
+            raise ValidationError("get argument for cookie op must be a string")
+        check_op(op, op_args)
+
+    def check_query(op, op_args, get_args):
+        if not isinstance(get_args, str):
+            raise ValidationError("get argument for query op must be a string")
+        check_op(op, op_args)
+
+    if len(dd) == 0:
+        raise ValidationError("abtesting rules is empty")
+    for k, v in dd.items():
+        try:
+            ty = v["type"]
+            op = v["op"]
+            op_args = v["op_args"]
+        except KeyError:
+            raise ValidationError("abtesting rule must contain type, op and op_args")
+        get_args = v.get("get_args", None)
+        validator_map = {
+            "ua": check_ua,
+            "ip": check_ip,
+            "header": check_header,
+            "cookie": check_cookie,
+            "query": check_query,
+        }
+        if ty not in validator_map:
+            raise ValidationError("invalid rule type")
+        validator_map[ty](op, op_args, get_args)
 
 
 def validate_cpu(d):
@@ -152,6 +234,16 @@ class ClusterArgSchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
 
 
+class ClusterCanarySchema(StrictSchema):
+    cluster = fields.Str(required=True, validate=validate_cluster_name)
+    canary = fields.Bool(missing=False)
+
+
+class ABTestingSchema(StrictSchema):
+    cluster = fields.Str(required=True, validate=validate_cluster_name)
+    rules = fields.Dict(required=True, validate=validate_abtesting_rules)
+
+
 class SecretSchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
     data = fields.Dict(required=True, validate=validate_secret_data)
@@ -196,6 +288,8 @@ class JobArgsSchema(StrictSchema):
                     raise ValidationError("{} is required when specs_text is null".format(field))
 
 
+cluster_args_schema = ClusterArgSchema()
+cluster_canary_schema = ClusterCanarySchema()
 register_schema = RegisterSchema()
 deploy_schema = DeploySchema()
 scale_schema = ScaleSchema()

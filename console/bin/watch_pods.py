@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import json
 import argparse
 import threading
 from urllib3.exceptions import ProtocolError
@@ -7,9 +8,10 @@ from urllib3.exceptions import ProtocolError
 from console.app import celery
 from console.libs.utils import logger
 from console.libs.k8s import kube_api
-from console.libs import sse
-from console.libs.utils import make_sse_channel_name
+from console.libs.utils import make_app_watcher_channel_name
+from console.libs.jsonutils import VersatileEncoder
 from console.tasks import handle_job_pod_event
+from console.ext import rds
 
 
 def spawn(target, *args, **kw):
@@ -54,14 +56,12 @@ class LongRunningWatcher(object):
 
                     if 'kae-app-name' in labels:
                         appname = labels['kae-app-name']
-                        channel = make_sse_channel_name(cluster, appname)
-                        # print(channel)
-                        type = 'pod'
+                        channel = make_app_watcher_channel_name(cluster, appname)
                         data = {
                             'object': obj.to_dict(),
                             'action': event['type'],
                         }
-                        sse.publish(data, type=type, channel=channel)
+                        rds.publish(message=json.dumps(data, cls=VersatileEncoder), channel=channel)
                     elif 'kae-job-name' in labels:
                         if event['type'] == 'DELETED':
                             continue

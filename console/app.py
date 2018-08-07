@@ -6,20 +6,20 @@ import logging
 
 from celery import Celery, Task
 from flask import jsonify, g, Flask, request
-from flask_cors import CORS
+# from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_admin import Admin
 from flasgger import Swagger
-from whitenoise import WhiteNoise
+# from whitenoise import WhiteNoise
 
-from raven.contrib.flask import Sentry
+# from raven.contrib.flask import Sentry
 from werkzeug.utils import import_string
 
 from console.config import (
     DEBUG, SENTRY_DSN, STATIC_DIR, TEMPLATE_DIR, TASK_PUBSUB_CHANNEL,
     TASK_PUBSUB_EOF,
 )
-from console.ext import sess, db, mako, cache, init_oauth, rds
+from console.ext import sess, db, mako, cache, init_oauth, rds, sockets
 from console.libs.datastructure import DateConverter
 from console.libs.jsonutils import VersatileEncoder
 from console.libs.utils import bearychat_sendmsg
@@ -231,7 +231,7 @@ def create_app():
     app = Flask(__name__, static_url_path='/static', static_folder=STATIC_DIR, template_folder=TEMPLATE_DIR)
 
     # CORS(app)
-    cors = CORS(app, resources={r"/api/*": {"origins": "*"}})
+    # cors = CORS(app, resources={r"/api/*": {"origins": "*"}})
 
     app.config['SWAGGER'] = {
         'title': 'KAE Console API',
@@ -251,6 +251,7 @@ def create_app():
     mako.init_app(app)
     cache.init_app(app)
     sess.init_app(app)
+    sockets.init_app(app)
 
     migrate = Migrate(app, db)
 
@@ -258,13 +259,16 @@ def create_app():
     admin = Admin(app, name='KAE', template_mode='bootstrap3')
     init_admin(admin)
 
-    if not DEBUG:
-        sentry = Sentry(dsn=SENTRY_DSN)
-        sentry.init_app(app)
+    # if not DEBUG:
+    #     sentry = Sentry(dsn=SENTRY_DSN)
+    #     sentry.init_app(app)
 
     for bp_name in api_blueprints:
         bp = import_string('%s.api.%s:bp' % (__package__, bp_name))
         app.register_blueprint(bp)
+
+    from console.api.ws import ws
+    sockets.register_blueprint(ws)
 
     @app.before_request
     def init_global_vars():
@@ -294,7 +298,7 @@ def create_app():
         }), 422
 
     # add whitenoise
-    app.wsgi_app = WhiteNoise(app.wsgi_app, root=STATIC_DIR)
+    # app.wsgi_app = WhiteNoise(app.wsgi_app, root=STATIC_DIR)
 
     return app
 

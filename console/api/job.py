@@ -17,7 +17,6 @@ from console.libs.validation import JobArgsSchema
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
 from console.models import Job
 from console.models.specs import load_job_specs
-from console.libs import sse
 from console.libs.k8s import kube_api, ApiException
 from console.libs.cloner import Cloner
 from console.config import JOBS_ROOT_DIR
@@ -255,39 +254,3 @@ def get_job_log(jobname):
         abort(500, "Error when get job log: {}".format(str(e)))
 
 
-@bp.route('/<jobname>/log/events')
-@user_require(False)
-def get_job_log_events(jobname):
-    """
-    SSE endpoint fo job log
-    ---
-    responses:
-      200:
-        description: event stream
-        schema:
-          type: object
-    """
-    @stream_with_context
-    def generator():
-        job = Job.get_by_name(jobname)
-        if not job:
-            yield sse.make_errmsg("job {} not found".format(jobname))
-            return
-        try:
-            pods = kube_api.get_job_pods(jobname)
-            if pods.items:
-                podname = pods.items[0].metadata.name
-                for line in kube_api.follow_pod_log(podname=podname):
-                    yield sse.make_msg(line)
-                yield sse.make_close_msg('')
-            else:
-                yield sse.make_close_msg("no log, please retry")
-        except ApiException as e:
-            yield sse.make_errmsg("Error when create job: {}".format(str(e)))
-        except Exception as e:
-            yield sse.make_errmsg("Error when create job: {}".format(str(e)))
-
-    return current_app.response_class(
-        generator(),
-        mimetype='text/event-stream',
-    )

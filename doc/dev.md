@@ -9,6 +9,6 @@ then you can start gunicorn server in container
 you also need start celery workers
 
     docker exec -it kae-console sh
-    celery -A console.app:celery worker --autoscale=4,2 -B -Ofair
+    celery -A console.app:celery worker --autoscale=4,1 -B
 
 A redis instance is also needed

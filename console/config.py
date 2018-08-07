@@ -26,6 +26,7 @@ CONFIG_ROOT_DIR = '/etc/kae-console'
 K8S_SECRETS_DIR = "/etc/k8s-secret-volume"
 CONTAINER_CONFIG_DIR = os.path.join(CONFIG_ROOT_DIR, "config")
 
+INGRESS_ANNOTATIONS_PREFIX = "nginx.ingress.kubernetes.io"
 
 # SERVER_NAME = getenv('SERVER_NAME', default='127.0.0.1')
 SENTRY_DSN = getenv('SENTRY_DSN', default='')
@@ -38,6 +39,7 @@ BUILD_NS = getenv('BUILD_NS', default='kae')
 
 SQLALCHEMY_DATABASE_URI = getenv('SQLALCHEMY_DATABASE_URI')
 SQLALCHEMY_TRACK_MODIFICATIONS = getenv('SQLALCHEMY_TRACK_MODIFICATIONS', default=True, type=bool)
+SQLALCHEMY_POOL_SIZE = getenv('SQLALCHEMY_POOL_SIZE', default=50)
 # you should set SQLALCHEMY_POOL_RECYCLE to a value smaller than wait_timeout config in mysql
 SQLALCHEMY_POOL_RECYCLE = getenv('SQLALCHEMY_POOL_RECYCLE', default=580)
 

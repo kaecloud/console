@@ -1,28 +1,25 @@
 # -*- coding: utf-8 -*-
 
-import json
 import yaml
-import time
 
 from addict import Dict
-from flask import abort, g, Response, stream_with_context, current_app
+from flask import abort, g
 from marshmallow import ValidationError
 from sqlalchemy.exc import IntegrityError
 from webargs.flaskparser import use_args
 
 from console.libs.validation import (
     RegisterSchema, UserSchema, RollbackSchema, SecretSchema, ConfigMapSchema,
-    ScaleSchema, BuildArgsSchema, DeploySchema, ClusterArgSchema,
+    ScaleSchema, DeploySchema, ClusterArgSchema, ABTestingSchema,
+    ClusterCanarySchema,
 )
-from console.libs import sse
-from console.libs.utils import logger, make_errmsg, make_sse_channel_name
+from console.libs.utils import logger, make_canary_appname
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
 from console.models import App, Release, SpecVersion, User, OPLog, OPType
 from console.models.specs import fix_app_spec, app_specs_schema
 from console.libs.k8s import kube_api
 from console.libs.k8s import ApiException
 from console.config import DEFAULT_REGISTRY
-from console.tasks import celery_task_stream_response, build_image
 
 bp = create_api_blueprint('app', __name__, 'app')
 
@@ -83,6 +80,24 @@ def _get_release(appname, git_tag):
         abort(403, 'You\'re not granted to this app, ask administrators for permission')
 
     return release
+
+
+def _get_canary_info(appname, cluster):
+    canary_appname = make_canary_appname(appname)
+    try:
+        dp = kube_api.get_deployment(canary_appname, cluster_name=cluster, ignore_404=True)
+    except ApiException as e:
+        abort(e.status, "Error when delete app canary: {}".format(str(e)))
+    except Exception as e:
+        logger.exception("kubernetes error: ")
+        abort(500, 'kubernetes error: {}'.format(str(e)))
+    info = {}
+    if dp is None:
+        info['status'] = False
+    else:
+        info['status'] = True
+        info['spec'] = dp.metadata.annotations.get('spec')
+    return info
 
 
 @bp.route('/')
@@ -164,6 +179,10 @@ def rollback_app(args, appname):
     revision = args['revision']
     cluster = args['cluster']
     app = get_app_raw(appname)
+
+    canary_info = _get_canary_info(appname, cluster)
+    if canary_info['status']:
+        abort(403, "Please delete canary release before rollback app")
 
     try:
         k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster)
@@ -272,6 +291,10 @@ def delete_app(appname):
     """
     app = get_app_raw(appname)
     tag = app.latest_release.tag if app.latest_release else ""
+
+    # canary_info = _get_canary_info(appname, cluster)
+    # if canary_info['status']:
+    #     abort(403, "Please delete canary release first")
     try:
         kube_api.delete_app(appname, app.type, ignore_404=True, cluster_name=kube_api.ALL_CLUSTER)
     except ApiException as e:
@@ -408,7 +431,7 @@ def revoke_user(args, appname):
 
 
 @bp.route('/<appname>/pods')
-@use_args(ClusterArgSchema())
+@use_args(ClusterCanarySchema())
 @user_require(False)
 def get_app_pods(args, appname):
     """
@@ -431,82 +454,22 @@ def get_app_pods(args, appname):
           ]
     """
     cluster = args['cluster']
+    canary = args["canary"]
     app = get_app_raw(appname)
+    name = appname
+    if canary:
+        name = "{}-canary".format(appname)
 
     try:
-        return kube_api.get_app_pods(appname=appname, cluster_name=cluster)
+        return kube_api.get_app_pods(name=name, cluster_name=cluster)
     except ApiException as e:
         abort(e.status, "Error when get kubernetes pods object: {}".format(str(e)))
     except Exception as e:
         abort(500, str(e))
 
 
-@bp.route('/<appname>/pods/events')
-@use_args(ClusterArgSchema())
-@user_require(False)
-def get_app_pods_events(args, appname):
-    """
-    Get events of the pods belong to specified app
-    ---
-    parameters:
-      - name: appname
-        in: path
-        type: string
-        required: true
-      - name: cluster
-        in: query
-        type: string
-        required: true
-    responses:
-      200:
-        description: PodList object
-        examples:
-          application/json: [
-          ]
-    """
-    cluster = args['cluster']
-
-    @stream_with_context
-    def generator():
-        channel = make_sse_channel_name(cluster, appname)
-        for message in sse.messages(channel=channel):
-            yield str(message)
-
-        # last_seen_version = None
-        # label_selector = "kae-app-name={}".format(appname)
-        # while True:
-        #     try:
-        #         if last_seen_version is not None:
-        #             watcher = kube_api.watch_pods(cluster_name=cluster, label_selector=label_selector, resource_version=last_seen_version)
-        #         else:
-        #             watcher = kube_api.watch_pods(cluster_name=cluster, label_selector=label_selector)
-
-        #         for event in watcher:
-        #             obj = event['object']
-        #             last_seen_version = obj.metadata.resource_version
-
-        #             type = 'pod'
-        #             data = {
-        #                 'object': event['raw_object'],
-        #                 'action': event['type'],
-        #             }
-        #             yield sse.make_msg(data, type)
-        #     except Exception as e:
-        #         logger.error("watch pods error: {}".format(str(e)))
-
-    headers = {
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",
-    }
-    return current_app.response_class(
-        generator(),
-        mimetype='text/event-stream',
-        headers=headers,
-    )
-
-
 @bp.route('/<appname>/deployment')
-@use_args(ClusterArgSchema())
+@use_args(ClusterCanarySchema())
 @user_require(False)
 def get_app_deployment(args, appname):
     """
@@ -529,11 +492,13 @@ def get_app_deployment(args, appname):
           ]
     """
     cluster = args['cluster']
+    canary = args['canary']
     app = get_app_raw(appname)
+    name = "{}-canary".format(appname) if canary else appname
     if not app:
         abort(404, "app {} not found".format(appname))
     try:
-        return kube_api.get_deployment(appname=appname, cluster_name=cluster)
+        return kube_api.get_deployment(name, cluster_name=cluster)
     except ApiException as e:
         abort(e.status, "Error when get kubernetes deployment object: {}".format(str(e)))
     except Exception as e:
@@ -1014,80 +979,6 @@ def scale_app(args, appname):
     return DEFAULT_RETURN_VALUE
 
 
-# I know this api should use PUT or POST method, but SSE only support GET and
-# I don't want to use websocket for only one function
-@bp.route('/<appname>/build')
-@use_args(BuildArgsSchema())
-@user_require(False)
-def build_app(args, appname):
-    """Build an image for the specified release.
-    ---
-    definitions:
-      BuildArgs:
-        type: object
-        properties:
-          tag:
-            type: object
-
-    parameters:
-      - name: appname
-        in: path
-        type: string
-        required: true
-      - name: build_args
-        in: body
-        required: true
-        schema:
-          $ref: '#/definitions/BuildArgs'
-    responses:
-      200:
-        description: multiple stream messages
-        schema:
-          $ref: '#/definitions/StreamMessage'
-      400:
-        description: Error information
-        schema:
-          $ref: '#/definitions/Error'
-        examples:
-          error: "xxx"
-    """
-    @stream_with_context
-    def generator():
-        tag = args["tag"]
-
-        app = App.get_by_name(appname)
-        if not app:
-            yield sse.make_errmsg(make_errmsg('app {} not found'.format(appname)))
-            return
-
-        if not g.user.granted_to_app(app):
-            yield sse.make_errmsg(make_errmsg('You\'re not granted to this app, ask administrators for permission'))
-            return
-        release = app.get_release_by_tag(tag)
-        if not release:
-            yield sse.make_errmsg(make_errmsg('release {} not found.'.format(tag)))
-            return
-
-        # try:
-        #     for msg in build_image_helper(appname, release):
-        #         yield msg
-        # except BuildError as e:
-        #     yield str(e)
-        async_result = build_image.delay(appname, tag)
-        for m in celery_task_stream_response(async_result.task_id):
-            data = json.loads(m)
-            ty = 'build'
-            yield sse.make_msg(data, ty)
-
-        yield sse.make_close_msg("haha")
-
-    return current_app.response_class(
-        generator(),
-        mimetype='text/event-stream',
-    )
-    # return Response(generator())
-
-
 @bp.route('/<appname>/deploy', methods=['PUT'])
 @use_args(DeploySchema())
 @user_require(False)
@@ -1146,6 +1037,10 @@ def deploy_app(args, appname):
 
     if not g.user.granted_to_app(app):
         abort(403, 'You\'re not granted to this app, ask administrators for permission')
+
+    canary_info = _get_canary_info(appname, cluster)
+    if canary_info['status']:
+        abort(403, "please delete canary release before you deploy a new release")
     release = app.get_release_by_tag(tag)
     if not release:
         abort(404, 'release {} not found.'.format(tag))
@@ -1218,3 +1113,298 @@ def deploy_app(args, appname):
         action=OPType.DEPLOY_APP,
     )
     return DEFAULT_RETURN_VALUE
+
+
+@bp.route('/<appname>/canary/deploy', methods=['PUT'])
+@use_args(DeploySchema())
+@user_require(False)
+def deploy_app_canary(args, appname):
+    """
+    deployment app to kubernetes
+    ---
+    definitions:
+      DeployArgs:
+        type: object
+        properties:
+          cluster:
+            type: string
+            required: true
+          tag:
+            type: string
+            required: true
+          specs_text:
+            type: string
+          cpus:
+            type: object
+          memories:
+            type: object
+          replicas:
+            type: integer
+
+    parameters:
+      - name: appname
+        in: path
+        type: string
+        required: true
+      - name: deploy_args
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/DeployArgs'
+    responses:
+      200:
+        description: multiple stream messages
+        schema:
+          $ref: '#/definitions/StreamMessage'
+      400:
+        description: Error information
+        schema:
+          $ref: '#/definitions/Error'
+        examples:
+          error: "xxx"
+    """
+    cluster = args['cluster']
+    tag = args["tag"]
+    specs_text = args.get('specs_text', None)
+
+    app = App.get_by_name(appname)
+    if not app:
+        abort(404, 'app {} not found'.format(appname))
+
+    if not g.user.granted_to_app(app):
+        abort(403, 'You\'re not granted to this app, ask administrators for permission')
+
+    if app.type != "web":
+        abort(403, "Only web app can deploy canary release")
+
+    release = app.get_release_by_tag(tag)
+    if not release:
+        abort(404, 'release {} not found.'.format(tag))
+
+    if release.build_status is False:
+        abort(403, "please build release first")
+
+    if specs_text:
+        try:
+            yaml_dict = yaml.load(release.specs_text)
+        except yaml.YAMLError as e:
+            abort(403, 'specs text is invalid yaml {}'.format(str(e)))
+        try:
+            specs = app_specs_schema.load(yaml_dict).data
+            fix_app_spec(specs, appname, tag)
+        except ValidationError as e:
+            abort(403, 'specs text is invalid {}'.format(str(e)))
+    else:
+        specs = release.specs
+        # update specs from release
+        replicas = args.get('replicas')
+        cpus = args.get('cpus')
+        memories = args.get('memories')
+
+        if not replicas:
+            replicas = specs.service.replicas
+        try:
+            specs = _update_specs(specs, cpus, memories, replicas)
+        except IndexError:
+            abort(403, "cpus or memories' index is larger than the number of containers")
+    # check secret and configmap
+    if specs_contains_secrets(specs):
+        try:
+            kube_api.get_secret(appname, cluster_name=cluster)
+        except Exception:
+            abort(403, "can't get secret, pls ensure you've added secret for {}".format(appname))
+    if specs_contains_configmap(specs):
+        try:
+            kube_api.get_config_map(appname, cluster_name=cluster)
+        except Exception:
+            abort(403, "can't get config, pls ensure you've added config for {}".format(appname))
+
+    try:
+        kube_api.deploy_app_canary(specs, release.tag, cluster_name=cluster)
+    except ApiException as e:
+        abort(e.status, "Error when deploy app canary: {}".format(str(e)))
+    except Exception as e:
+        abort(500, 'kubernetes error: {}'.format(str(e)))
+
+    OPLog.create(
+        user_id=g.user.id,
+        appname=appname,
+        tag=release.tag,
+        action=OPType.DEPLOY_APP_CANARY,
+    )
+    return DEFAULT_RETURN_VALUE
+
+
+@bp.route('/<appname>/canary', methods=['DELETE'])
+@use_args(ClusterArgSchema())
+@user_require(False)
+def delete_app_canary(args, appname):
+    """
+    delete app canary release in kubernetes
+    ---
+    """
+    cluster = args['cluster']
+
+    app = App.get_by_name(appname)
+    if not app:
+        abort(404, 'app {} not found'.format(appname))
+
+    canary_info = _get_canary_info(appname, cluster)
+    if not canary_info['status']:
+        return DEFAULT_RETURN_VALUE
+
+    if not g.user.granted_to_app(app):
+        abort(403, 'You\'re not granted to this app, ask administrators for permission')
+
+    try:
+        kube_api.delete_app_canary(appname, cluster_name=cluster, ignore_404=True)
+    except ApiException as e:
+        abort(e.status, "Error when delete app canary: {}".format(str(e)))
+    except Exception as e:
+        logger.exception("kubernetes error: ")
+        abort(500, 'kubernetes error: {}'.format(str(e)))
+
+    OPLog.create(
+        user_id=g.user.id,
+        appname=appname,
+        # tag=release.tag,
+        action=OPType.DEPLOY_APP_CANARY,
+    )
+    return DEFAULT_RETURN_VALUE
+
+
+@bp.route('/<appname>/canary')
+@use_args(ClusterArgSchema())
+@user_require(False)
+def get_app_canary_info(args, appname):
+    """
+    delete app canary release in kubernetes
+    ---
+    """
+    cluster = args['cluster']
+
+    app = App.get_by_name(appname)
+    if not app:
+        abort(404, 'app {} not found'.format(appname))
+
+    if not g.user.granted_to_app(app):
+        abort(403, 'You\'re not granted to this app, ask administrators for permission')
+
+    return _get_canary_info(appname, cluster)
+
+
+@bp.route('/<appname>/abtesting', methods=['PUT'])
+@use_args(ABTestingSchema())
+@user_require(False)
+def set_app_abtesting_rules(args, appname):
+    """
+    set ABTesting rules for specified app
+    ---
+    definitions:
+      ABTestingRules:
+        type: object
+        properties:
+          cluster:
+            type: string
+            required: true
+          rules:
+            type: string
+            required: true
+
+    parameters:
+      - name: appname
+        in: path
+        type: string
+        required: true
+      - name: abtesting_args
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/ABTestingRules'
+    responses:
+      200:
+        description: multiple stream messages
+        schema:
+          $ref: '#/definitions/StreamMessage'
+      400:
+        description: Error information
+        schema:
+          $ref: '#/definitions/Error'
+        examples:
+          error: "xxx"
+    """
+    cluster = args['cluster']
+    rules = args["rules"]
+    app = App.get_by_name(appname)
+    if not app:
+        abort(404, 'app {} not found'.format(appname))
+
+    if not g.user.granted_to_app(app):
+        abort(403, 'You\'re not granted to this app, ask administrators for permission')
+
+    canary_info = _get_canary_info(appname, cluster)
+    if not canary_info['status']:
+        abort(403, "you must deploy canary version before adding abtesting rules")
+
+    try:
+        kube_api.set_abtesting_rules(appname, rules, cluster_name=cluster)
+    except ApiException as e:
+        abort(e.status, "Error when add abtesting rule: {}".format(str(e)))
+    except Exception as e:
+        abort(500, 'kubernetes error: {}'.format(str(e)))
+    return DEFAULT_RETURN_VALUE
+
+
+@bp.route('/<appname>/abtesting')
+@use_args(ClusterArgSchema())
+@user_require(False)
+def get_app_abtesting_rules(args, appname):
+    """
+    set ABTesting rules for specified app
+    ---
+    definitions:
+      ABTestingRules:
+        type: object
+        properties:
+          cluster:
+            type: string
+            required: true
+
+    parameters:
+      - name: appname
+        in: path
+        type: string
+        required: true
+      - name: abtesting_args
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/ABTestingRules'
+    responses:
+      200:
+        description: multiple stream messages
+        schema:
+          $ref: '#/definitions/StreamMessage'
+      400:
+        description: Error information
+        schema:
+          $ref: '#/definitions/Error'
+        examples:
+          error: "xxx"
+    """
+    cluster = args['cluster']
+    app = App.get_by_name(appname)
+    if not app:
+        abort(404, 'app {} not found'.format(appname))
+
+    if not g.user.granted_to_app(app):
+        abort(403, 'You\'re not granted to this app, ask administrators for permission')
+
+    try:
+        rules = kube_api.get_abtesting_rules(appname, cluster_name=cluster)
+    except ApiException as e:
+        abort(e.status, "Error when get abtesting rule: {}".format(str(e)))
+    except Exception as e:
+        logger.exception("internal error: ")
+        abort(500, 'kubernetes error: {}'.format(str(e)))
+    return rules
