@@ -4,7 +4,7 @@ import argparse
 import threading
 from urllib3.exceptions import ProtocolError
 
-# must import celery before import tasks and sse
+# must import celery before import tasks
 from console.app import celery
 from console.libs.utils import logger
 from console.libs.k8s import kube_api

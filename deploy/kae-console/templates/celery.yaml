@@ -8,7 +8,7 @@ metadata:
   name: kae-console-celery
   namespace: kae
 spec:
-  replicas: 2
+  replicas: {{ .Values.replicaCount }}
   revisionHistoryLimit: 10
   selector:
     matchLabels:
@@ -18,11 +18,10 @@ spec:
       labels:
         k8s-app: kae-console-celery
     spec:
-      serviceAccountName: kae-console-serviceaccount
       containers:
       - name: kae-console-celery
-        image: yuyang0/kae-console:0.0.1-alpha4
-        imagePullPolicy: Always
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
         command: ["celery", "-A", "console.app:celery", "worker", "--autoscale=4,1", "-B"]
         args:
           # Uncomment the following line to manually specify Kubernetes API server Host

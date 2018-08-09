@@ -1,7 +1,9 @@
 import json
+import contextlib
 from flask import session, g
 from json.decoder import JSONDecodeError
 from marshmallow import ValidationError
+from geventwebsocket.exceptions import WebSocketError
 
 from console.libs.utils import logger, make_app_watcher_channel_name, make_errmsg
 from console.libs.jsonutils import VersatileEncoder
@@ -10,9 +12,15 @@ from console.libs.validation import build_args_schema, cluster_args_schema, clus
 from console.libs.view import create_api_blueprint, user_require
 from console.models import App, Job
 from console.tasks import celery_task_stream_response, build_image
-from console.ext import rds
+from console.ext import rds, db
 
 ws = create_api_blueprint('ws', __name__, url_prefix='ws', jsonize=False, handle_http_error=False)
+
+
+@contextlib.contextmanager
+def session_removed():
+    db.session.remove()
+    yield
 
 
 @ws.route('/app/<appname>/pods/events')
@@ -38,27 +46,43 @@ def get_app_pods_events(socket, appname):
     name = "{}-canary".format(appname) if canary else appname
     channel = make_app_watcher_channel_name(cluster, name)
 
-    pod_list = kube_api.get_app_pods(name, cluster_name=cluster)
-    pods = pod_list.to_dict()
-    for item in pods['items']:
-        data = {
-            'object': item,
-            'action': "ADDED",
-        }
-        socket.send(json.dumps(data, cls=VersatileEncoder))
+    app = App.get_by_name(appname)
+    if not app:
+        socket.send(make_errmsg('app {} not found'.format(appname), jsonize=True))
+        return
 
-    pubsub = rds.pubsub()
-    pubsub.subscribe(channel)
-    for item in pubsub.listen():
-        if item['type'] == 'message':
-            raw_content = item['data']
-            # omit the initial message where item['data'] is 1L
-            if not isinstance(raw_content, (bytes, str)):
-                continue
-            content = raw_content
-            if isinstance(content, bytes):
-                content = content.decode('utf-8')
-            socket.send(content)
+    if not g.user.granted_to_app(app):
+        socket.send(make_errmsg('You\'re not granted to this app, ask administrators for permission', jsonize=True))
+        return
+
+    # since this request may pend long time, so we remove the db session
+    # otherwise we may get error like `sqlalchemy.exc.TimeoutError: QueuePool limit of size 50 overflow 10 reached, connection timed out`
+    with session_removed():
+        pod_list = kube_api.get_app_pods(name, cluster_name=cluster)
+        pods = pod_list.to_dict()
+        for item in pods['items']:
+            data = {
+                'object': item,
+                'action': "ADDED",
+            }
+            socket.send(json.dumps(data, cls=VersatileEncoder))
+
+        pubsub = rds.pubsub()
+        pubsub.subscribe(channel)
+        for item in pubsub.listen():
+            if item['type'] == 'message':
+                raw_content = item['data']
+                # omit the initial message where item['data'] is 1L
+                if not isinstance(raw_content, (bytes, str)):
+                    continue
+                content = raw_content
+                if isinstance(content, bytes):
+                    content = content.decode('utf-8')
+                try:
+                    socket.send(content)
+                except WebSocketError as e:
+                    logger.warn("can't send pod event msg to client: {}".format(str(e)))
+                    break
 
 
 @ws.route('/app/<appname>/build')
@@ -127,7 +151,11 @@ def build_app(socket, appname):
 
     async_result = build_image.delay(appname, tag)
     for m in celery_task_stream_response(async_result.task_id):
-        socket.send(m)
+        try:
+            socket.send(m)
+        except WebSocketError as e:
+            logger.warn("Can't send build msg to client: {}".format(str(e)))
+            break
 
 
 @ws.route('/job/<jobname>/log/events')
@@ -147,13 +175,18 @@ def get_job_log_events(socket, jobname):
         socket.send(json.dumps({"error": "job {} not found".format(jobname)}))
         return
     try:
-        pods = kube_api.get_job_pods(jobname)
-        if pods.items:
-            podname = pods.items[0].metadata.name
-            for line in kube_api.follow_pod_log(podname=podname):
-                socket.send(json.dumps({'data': line}))
-        else:
-            socket.send(json.dumps({"error": "no log, please retry"}))
+        with session_removed():
+            pods = kube_api.get_job_pods(jobname)
+            if pods.items:
+                podname = pods.items[0].metadata.name
+                for line in kube_api.follow_pod_log(podname=podname):
+                    try:
+                        socket.send(json.dumps({'data': line}))
+                    except WebSocketError as e:
+                        logger.warn("Can't send job log msg to client: {}".format(str(e)))
+                        break
+            else:
+                socket.send(json.dumps({"error": "no log, please retry"}))
     except ApiException as e:
         socket.send(json.dumps({"error": "Error when create job: {}".format(str(e))}))
     except Exception as e:

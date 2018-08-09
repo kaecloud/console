@@ -1,0 +1,17 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: kae-console
+  namespace: kae
+spec:
+  tls:
+  - hosts:
+    - console.gtapp.xyz
+    secretName: gtapp-xyz-tls
+  rules:
+  - host: console.gtapp.xyz
+    http:
+      paths:
+      - backend:
+          serviceName: kae-console
+          servicePort: 80

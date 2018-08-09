@@ -1,0 +1,13 @@
+kind: Service
+apiVersion: v1
+metadata:
+  labels:
+    app: kae-console
+  name: kae-console
+  namespace: kae
+spec:
+  ports:
+  - port: 80
+    targetPort: 5000
+  selector:
+    k8s-app: kae-console

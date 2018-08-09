@@ -1,5 +1,3 @@
----
-
 kind: Deployment
 apiVersion: extensions/v1beta1
 metadata:
@@ -8,7 +6,7 @@ metadata:
   name: kae-console
   namespace: kae
 spec:
-  replicas: 1
+  replicas: {{ .Values.replicaCount }}
   revisionHistoryLimit: 10
   selector:
     matchLabels:
@@ -17,22 +15,19 @@ spec:
     metadata:
       labels:
         k8s-app: kae-console
-      annotations:
-        renew_id: "2"
     spec:
-      serviceAccountName: kae-console-serviceaccount
       containers:
       - name: kae-console
-        image: yuyang0/kae-console:0.0.1-alpha4
-        imagePullPolicy: Always
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
         ports:
         - containerPort: 5000
           protocol: TCP
         args:
-          # Uncomment the following line to manually specify Kubernetes API server Host
-          # If not specified, Dashboard will attempt to auto discover the API server and connect
-          # to it. Uncomment only if the default does not work.
-          # - --apiserver-host=http://my-address:port
+        # Uncomment the following line to manually specify Kubernetes API server Host
+        # If not specified, Dashboard will attempt to auto discover the API server and connect
+        # to it. Uncomment only if the default does not work.
+        # - --apiserver-host=http://my-address:port
         livenessProbe:
           httpGet:
             path: /healthz
@@ -45,14 +40,14 @@ spec:
         - name: kae-console-secret-vol
           mountPath: /etc/k8s-secret-volume
       - name: kae-pods-watcher
-        image: yuyang0/kae-console:0.0.1-alpha4
-        imagePullPolicy: Always
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
         command: ['sh', 'bin/run-pods-watcher']
         args:
-          # Uncomment the following line to manually specify Kubernetes API server Host
-          # If not specified, Dashboard will attempt to auto discover the API server and connect
-          # to it. Uncomment only if the default does not work.
-          # - --apiserver-host=http://my-address:port
+        # Uncomment the following line to manually specify Kubernetes API server Host
+        # If not specified, Dashboard will attempt to auto discover the API server and connect
+        # to it. Uncomment only if the default does not work.
+        # - --apiserver-host=http://my-address:port
         volumeMounts:
         - name: docker-sock-volume
           mountPath: /var/run/docker.sock
@@ -73,35 +68,3 @@ spec:
       tolerations:
       - key: node-role.kubernetes.io/master
         effect: NoSchedule
----
-kind: Service
-apiVersion: v1
-metadata:
-  labels:
-    app: kae-console
-  name: kae-console
-  namespace: kae
-spec:
-  ports:
-  - port: 80
-    targetPort: 5000
-  selector:
-    k8s-app: kae-console
----
-apiVersion: extensions/v1beta1
-kind: Ingress
-metadata:
-  name: kae-console
-  namespace: kae
-spec:
-  tls:
-  - hosts:
-    - console.gtapp.xyz
-    secretName: gtapp-xyz-tls
-  rules:
-  - host: console.gtapp.xyz
-    http:
-      paths:
-      - backend:
-          serviceName: kae-console
-          servicePort: 80
