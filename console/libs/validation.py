@@ -252,7 +252,7 @@ class SecretSchema(StrictSchema):
 class ConfigMapSchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
     data = fields.Str(required=True)
-    config_name = fields.Str(default='config')
+    config_name = fields.Str(missing='config')
 
 
 class RollbackSchema(StrictSchema):

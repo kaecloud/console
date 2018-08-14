@@ -3,6 +3,8 @@ kind: Ingress
 metadata:
   name: kae-console
   namespace: kae
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
 spec:
   tls:
   - hosts:
