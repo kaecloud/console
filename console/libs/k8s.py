@@ -522,10 +522,10 @@ class ClientApiBundle(object):
                 c.volumeMounts = []
             if 'volumes' in container_spec:
                 for container_path in container_spec['volumes']:
-                    name = container_path.replace('/', '-').strip('-')
-                    name = name.replace('.', '-')
+                    vol_name = container_path.replace('/', '-').strip('-')
+                    vol_name = vol_name.replace('.', '-')
                     vol = {
-                        "name": name,
+                        "name": vol_name,
                         "hostPath": {
                             "path": volumes_root + container_path,
                             "type": "DirectoryOrCreate",
@@ -533,7 +533,7 @@ class ClientApiBundle(object):
                     }
                     pod_spec.volumes.append(vol)
                     volume_mount = {
-                        "name": name,
+                        "name": vol_name,
                         "mountPath": container_path,
                     }
                     c.volumeMounts.append(volume_mount)
@@ -553,13 +553,13 @@ class ClientApiBundle(object):
                 c.volumeMounts.append(volume_mount)
 
             if container_spec.secrets:
-                for envname, key in zip(container_spec.secrets.envNameList, container_spec.secrets.secretKeyList):
+                for envname in container_spec.secrets.envNameList:
                     secret_ref = {
                         "name": envname,
                         "valueFrom": {
                             "secretKeyRef": {
                                 "name": name,
-                                "key": key,
+                                "key": envname,
                             }
                         }
                     }

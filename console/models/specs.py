@@ -31,8 +31,8 @@ def validate_image_pull_policy(ss):
 
 
 def validate_app_type(ss):
-    if ss not in ("web", "worker", "job"):
-        raise ValidationError("app type should be `web`, `worker`, `job`")
+    if ss not in ("web", "worker"):
+        raise ValidationError("app type should be `web`, `worker`")
 
 
 def validate_abs_path(ss):
@@ -74,6 +74,14 @@ def validate_percentage_or_int(ss):
             raise ValidationError("must be positive number or zero.")
     except ValueError:
         raise ValidationError("invalid percentage or integer")
+
+
+def validate_secrets(dd):
+    envNameList = dd.get('envNameList', None)
+    if len(dd) != 1 or envNameList is None:
+        raise ValidationError("secrets must contain only one field named `envNameList`")
+    if not isinstance(envNameList, list):
+        raise ValidationError("envNameList must be a list")
 
 
 class ContainerPort(StrictSchema):
@@ -126,7 +134,7 @@ class ContainerSpec(StrictSchema):
     volumes = fields.List(fields.Str(), validate=validate_abs_path_list)
     dfsVolumes = fields.List(fields.Str(), validate=validate_abs_path_list)
     configDir = fields.Str()
-    secrets = fields.Dict()
+    secrets = fields.Dict(validate=validate_secrets)
 
 
 class ServicePort(StrictSchema):

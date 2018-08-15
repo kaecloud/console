@@ -65,7 +65,6 @@ service:
     dfsVolumes:
       - /data
     secrets:
-      envNameList: []          # envNameList and secretKeyList are one to one mapped
-      secretKeyList: []
+      envNameList: []      # every item in envNameList should exist in correspond secret
     configDir: xxxxx       # the config map's mount path in container
 ```
