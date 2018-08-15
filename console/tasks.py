@@ -17,7 +17,7 @@ def build_image(self, appname, git_tag):
         for msg in build_image_helper(appname, release):
             self.stream_output(msg)
     except BuildError as e:
-        self.stream_ouput(e.data)
+        self.stream_output(e.data)
 
 
 @current_app.task
