@@ -166,16 +166,13 @@ class Release(BaseModelMixin):
         return None
 
     @classmethod
-    def get_by_app(cls, name, start=0, limit=None):
+    def get_by_app(cls, name, start=0, limit=100):
         app = App.get_by_name(name)
         if not app:
             return []
 
         q = cls.query.filter_by(app_id=app.id).order_by(cls.id.desc())
-        if limit is None:
-            return q[start:]
-        else:
-            return q[start:start + limit]
+        return q[start:start + limit]
 
     @classmethod
     def get_by_app_and_tag(cls, name, tag):
