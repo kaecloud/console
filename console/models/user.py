@@ -21,13 +21,13 @@ def get_current_user():
         else:
             return user
     token = fetch_token(OAUTH_APP_NAME)
-    # check if http headers contain access token
     if not token:
-        raw_token = request.headers.get('X-Access-Token', None)
-        if not raw_token:
+        # check if http headers contain personal private token
+        private_token = request.headers.get('X-Private-Token', None)
+        if not private_token:
             return None
         try:
-            authlib_user = private_token_client.profile(raw_token)
+            authlib_user = private_token_client.profile(private_token)
         except requests.HTTPError as e:
             return abort(e.response.status_code, 'fetch {} profile failed, please check your api token: {}'.format(OAUTH_APP_NAME, e))
         except Exception as e:

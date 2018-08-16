@@ -60,7 +60,7 @@ schemes:
 securityDefinitions:
   api_key:
     type: apiKey
-    name: X-Access-Token,
+    name: X-Private-Token,
     in: header
 security:
   - api_key: []
