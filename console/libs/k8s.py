@@ -10,27 +10,13 @@ from kubernetes import client, config, watch
 from kubernetes.watch.watch import iter_resp_lines
 
 from kubernetes.client.rest import ApiException
-import redis_lock
 
 from console.config import (
     HOST_VOLUMES_DIR, POD_LOG_DIR, BASE_DOMAIN, BASE_TLS_SECRET,
     REGISTRY_AUTHS, DFS_VOLUME, DFS_MOUNT_DIR, JOBS_ROOT_DIR, JOBS_OUPUT_ROOT_DIR,
     INGRESS_ANNOTATIONS_PREFIX,
 )
-from console.ext import rds
 from .utils import parse_image_name, id_generator, make_canary_appname
-
-
-def safe(f):
-    def inner(self, appname, *args, **kwags):
-        name = appname
-        if isinstance(name, dict):
-            name = name['appname']
-        lock_name = "__haha_lck_{}_aaa".format(name)
-        with redis_lock.Lock(rds, lock_name, expire=30, auto_renewal=True):
-            return f(self, appname, *args, **kwags)
-
-    return inner
 
 
 class KubernetesApi(object):
@@ -195,6 +181,9 @@ class ClientApiBundle(object):
     def get_secret(self, appname, namespace="default"):
         result = self.core_v1api.read_namespaced_secret(name=appname, namespace=namespace)
         secrets = {}
+        if not result.data:
+            return secrets
+
         for k, base64_v in result.data.items():
             v = base64.b64decode(base64_v).decode('utf8')
             secrets[k] = v
@@ -245,7 +234,6 @@ class ClientApiBundle(object):
             else:
                 raise e
 
-    @safe
     def renew_app(self, appname, namespace='default'):
         """
         force kubernetes to recreate the pods, it mainly used to make secrets and configmap effective.
@@ -260,7 +248,6 @@ class ClientApiBundle(object):
         deployment.spec.template.metadata.annotations['renew_id'] = id_generator(10)
         self.extensions_api.replace_namespaced_deployment(name=appname, namespace=namespace, body=deployment)
 
-    @safe
     def deploy_app(self, spec, release_tag, spec_version_id, namespace="default"):
         deployments, services, ingress = self.create_resource_dict(spec, release_tag, spec_version_id)
         for d in deployments:
@@ -270,7 +257,6 @@ class ClientApiBundle(object):
         for i in ingress:
             self.apply(i, namespace=namespace)
 
-    @safe
     def deploy_app_canary(self, spec, release_tag, namespace="default"):
         """
         create Canary Deployment for specified app.
@@ -320,7 +306,6 @@ class ClientApiBundle(object):
         full_rules = json.loads(full_rules_str)
         return full_rules.get("rules", None)
 
-    @safe
     def delete_app_canary(self, appname, namespace="default", ignore_404=False):
         canary_appname = make_canary_appname(appname)
         annotations_key = "{}/abtesting".format(INGRESS_ANNOTATIONS_PREFIX)
@@ -357,7 +342,6 @@ class ClientApiBundle(object):
         d = self._create_deployment_dict(spec, version=version, renew_id=renew_id, annotations=dp_annotations)
         self.extensions_api.replace_namespaced_deployment(name=appname, namespace=namespace, body=d)
 
-    @safe
     def rollback_app(self, appname, revision=0, namespace="default"):
         rollback_to = client.ExtensionsV1beta1RollbackConfig()
         rollback_to.revision = revision
@@ -371,7 +355,6 @@ class ClientApiBundle(object):
         )
         self.extensions_api.create_namespaced_deployment_rollback(name=appname, namespace=namespace, body=rollback)
 
-    @safe
     def delete_app(self, appname, apptype, namespace='default', ignore_404=False):
         # delete resource in the following order: ingress, service, deployment, secret, configmap
         if apptype == "web":

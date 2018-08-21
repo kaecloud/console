@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 
 import yaml
+import contextlib
 
+import redis_lock
 from addict import Dict
 from flask import abort, g
 from marshmallow import ValidationError
@@ -11,7 +13,7 @@ from webargs.flaskparser import use_args
 from console.libs.validation import (
     RegisterSchema, UserSchema, RollbackSchema, SecretSchema, ConfigMapSchema,
     ScaleSchema, DeploySchema, ClusterArgSchema, ABTestingSchema,
-    ClusterCanarySchema,
+    ClusterCanarySchema, SpecsArgsSchema,
 )
 from console.libs.utils import logger, make_canary_appname
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
@@ -20,8 +22,19 @@ from console.models.specs import fix_app_spec, app_specs_schema
 from console.libs.k8s import kube_api
 from console.libs.k8s import ApiException
 from console.config import DEFAULT_REGISTRY
+from console.ext import rds
 
 bp = create_api_blueprint('app', __name__, 'app')
+
+
+@contextlib.contextmanager
+def lock_app(appname):
+    name = appname
+    if isinstance(name, dict):
+        name = name['appname']
+    lock_name = "__app_lock_{}_aaa".format(name)
+    with redis_lock.Lock(rds, lock_name, expire=30, auto_renewal=True):
+        yield
 
 
 def specs_contains_secrets(specs):
@@ -296,7 +309,8 @@ def delete_app(appname):
     # if canary_info['status']:
     #     abort(403, "Please delete canary release first")
     try:
-        kube_api.delete_app(appname, app.type, ignore_404=True, cluster_name=kube_api.ALL_CLUSTER)
+        with lock_app(appname):
+            kube_api.delete_app(appname, app.type, ignore_404=True, cluster_name=kube_api.ALL_CLUSTER)
     except ApiException as e:
         abort(e.status, "Error when delete kubernetes object {}".format(str(e)))
     except Exception as e:
@@ -574,6 +588,69 @@ def get_release(appname, tag):
     return _get_release(appname, tag)
 
 
+@bp.route('/<appname>/version/<tag>/spec', methods=['POST'])
+@use_args(SpecsArgsSchema())
+@user_require(False)
+def update_release_spec(args, appname, tag):
+    """
+    update release's spec
+    ---
+    parameters:
+      - name: appname
+        in: path
+        type: string
+        required: true
+      - name: tag
+        in: path
+        type: string
+        required: true
+    responses:
+      200:
+        description: single Release object
+        schema:
+          $ref: '#/definitions/Release'
+        examples:
+          application/json:
+            app_id: 10019
+            specs_text: xxxxz
+            image: registry.cn-hangzhou.aliyuncs.com/kae/hello:v0.0.1
+            id: 32
+            misc: '{"commit_message": null, "git": "git@gitlab.com:yuyang0/hello-world.git"}'
+            build_status: True
+            updated: 2018-05-24 03:17:15
+            created: 2018-05-24 10:00:25
+            tag: v0.0.1
+    """
+    release = _get_release(appname, tag)
+    specs_text = args['specs_text']
+    # check the format of specs
+    try:
+        yaml_dict = yaml.load(specs_text)
+        # we can't change the builds part of the spec
+        yaml_dict['builds'] = release.specs_dict['builds']
+    except yaml.YAMLError as e:
+        return abort(400, 'specs text is invalid yaml {}'.format(str(e)))
+    try:
+        specs = app_specs_schema.load(yaml_dict).data
+        fix_app_spec(specs, appname, tag)
+    except ValidationError as e:
+        return abort(400, 'specs text is invalid {}'.format(str(e)))
+
+    # because some defaults may have added to specs, so we need update specs_text
+    specs_text = yaml.dump(specs.to_dict())
+
+    release.specs_text = specs_text
+    release.save()
+
+    OPLog.create(
+        user_id=g.user.id,
+        appname=appname,
+        tag=release.tag,
+        action=OPType.UPDATE_RELEASE,
+    )
+    return DEFAULT_RETURN_VALUE
+
+
 @bp.route('/<appname>/oplogs')
 @user_require(False)
 def get_app_oplogs(appname):
@@ -755,7 +832,16 @@ def get_config_map(args, appname):
     # check if the user can access the App
     get_app_raw(appname)
     try:
-        return kube_api.get_config_map(appname, cluster_name=cluster)
+        raw_data = kube_api.get_config_map(appname, cluster_name=cluster)
+        if len(raw_data) != 1:
+            logger.error("configmap must contain only one item, this maybe caused by bug, or the configmap has been changed by external operation")
+            abort(500, "internal error")
+        config_name = list(raw_data.keys())[0]
+        data = raw_data[config_name]
+        return {
+            "config_name": config_name,
+            "data": data,
+        }
     except ApiException as e:
         abort(e.status, str(e))
     except Exception as e:
@@ -842,7 +928,7 @@ def register_release(args):
         pass
     except Exception as e:
         logger.exception("failed to grant user {} to app {}".format(g.user.nickname, appname))
-        app.delete()
+        # app.delete()
         abort(500, "internal server error")
 
     default_release_image = None
@@ -1031,88 +1117,89 @@ def deploy_app(args, appname):
     tag = args["tag"]
     specs_text = args.get('specs_text', None)
 
-    app = App.get_by_name(appname)
-    if not app:
-        abort(404, 'app {} not found'.format(appname))
+    with lock_app(appname):
+        app = App.get_by_name(appname)
+        if not app:
+            abort(404, 'app {} not found'.format(appname))
 
-    if not g.user.granted_to_app(app):
-        abort(403, 'You\'re not granted to this app, ask administrators for permission')
+        if not g.user.granted_to_app(app):
+            abort(403, 'You\'re not granted to this app, ask administrators for permission')
 
-    canary_info = _get_canary_info(appname, cluster)
-    if canary_info['status']:
-        abort(403, "please delete canary release before you deploy a new release")
-    release = app.get_release_by_tag(tag)
-    if not release:
-        abort(404, 'release {} not found.'.format(tag))
+        canary_info = _get_canary_info(appname, cluster)
+        if canary_info['status']:
+            abort(403, "please delete canary release before you deploy a new release")
+        release = app.get_release_by_tag(tag)
+        if not release:
+            abort(404, 'release {} not found.'.format(tag))
 
-    try:
-        k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, ignore_404=True)
-    except ApiException as e:
-        abort(e.status, "Error when get deployment: {}".format(str(e)))
-    except Exception as e:
-        abort(500, "error when get deployment {}".format(str(e)))
-
-    if specs_text:
         try:
-            yaml_dict = yaml.load(release.specs_text)
-        except yaml.YAMLError as e:
-            abort(403, 'specs text is invalid yaml {}'.format(str(e)))
-        try:
-            specs = app_specs_schema.load(yaml_dict).data
-            fix_app_spec(specs, appname, tag)
-        except ValidationError as e:
-            abort(403, 'specs text is invalid {}'.format(str(e)))
-    else:
-        specs = release.specs
-        # update specs from release
-        replicas = args.get('replicas')
-        cpus = args.get('cpus')
-        memories = args.get('memories')
+            k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, ignore_404=True)
+        except ApiException as e:
+            abort(e.status, "Error when get deployment: {}".format(str(e)))
+        except Exception as e:
+            abort(500, "error when get deployment {}".format(str(e)))
 
-        # sometimes user may forget fo update replicas value after a scale operation,
-        # so if the spec is from the release, we never scale down the deployments
-        if not replicas:
-            replicas = specs.service.replicas
-            if k8s_deployment is not None and k8s_deployment.spec.replicas > replicas:
-                replicas = k8s_deployment.spec.replicas
-        try:
-            specs = _update_specs(specs, cpus, memories, replicas)
-        except IndexError:
-            abort(403, "cpus or memories' index is larger than the number of containers")
-    if release.build_status is False:
-        abort(403, "please build release first")
-    # check secret and configmap
-    if specs_contains_secrets(specs):
-        try:
-            kube_api.get_secret(appname, cluster_name=cluster)
-        except Exception:
-            abort(403, "can't get secret, pls ensure you've added secret for {}".format(appname))
-    if specs_contains_configmap(specs):
-        try:
-            kube_api.get_config_map(appname, cluster_name=cluster)
-        except Exception:
-            abort(403, "can't get config, pls ensure you've added config for {}".format(appname))
+        if specs_text:
+            try:
+                yaml_dict = yaml.load(release.specs_text)
+            except yaml.YAMLError as e:
+                abort(403, 'specs text is invalid yaml {}'.format(str(e)))
+            try:
+                specs = app_specs_schema.load(yaml_dict).data
+                fix_app_spec(specs, appname, tag)
+            except ValidationError as e:
+                abort(403, 'specs text is invalid {}'.format(str(e)))
+        else:
+            specs = release.specs
+            # update specs from release
+            replicas = args.get('replicas')
+            cpus = args.get('cpus')
+            memories = args.get('memories')
 
-    try:
-        spec_version = SpecVersion.create(app, tag, specs)
-    except:
-        logger.exception("can't create spec version")
-        abort(500, "internal server error")
+            # sometimes user may forget fo update replicas value after a scale operation,
+            # so if the spec is from the release, we never scale down the deployments
+            if not replicas:
+                replicas = specs.service.replicas
+                if k8s_deployment is not None and k8s_deployment.spec.replicas > replicas:
+                    replicas = k8s_deployment.spec.replicas
+            try:
+                specs = _update_specs(specs, cpus, memories, replicas)
+            except IndexError:
+                abort(403, "cpus or memories' index is larger than the number of containers")
+        if release.build_status is False:
+            abort(403, "please build release first")
+        # check secret and configmap
+        if specs_contains_secrets(specs):
+            try:
+                kube_api.get_secret(appname, cluster_name=cluster)
+            except Exception:
+                abort(403, "can't get secret, pls ensure you've added secret for {}".format(appname))
+        if specs_contains_configmap(specs):
+            try:
+                kube_api.get_config_map(appname, cluster_name=cluster)
+            except Exception:
+                abort(403, "can't get config, pls ensure you've added config for {}".format(appname))
 
-    try:
-        kube_api.deploy_app(specs, release.tag, spec_version.id, cluster_name=cluster)
-    except ApiException as e:
-        abort(e.status, "Error when deploy app: {}".format(str(e)))
-    except Exception as e:
-        abort(500, 'kubernetes error: {}'.format(str(e)))
+        try:
+            spec_version = SpecVersion.create(app, tag, specs)
+        except:
+            logger.exception("can't create spec version")
+            abort(500, "internal server error")
 
-    OPLog.create(
-        user_id=g.user.id,
-        appname=appname,
-        tag=release.tag,
-        action=OPType.DEPLOY_APP,
-    )
-    return DEFAULT_RETURN_VALUE
+        try:
+            kube_api.deploy_app(specs, release.tag, spec_version.id, cluster_name=cluster)
+        except ApiException as e:
+            abort(e.status, "Error when deploy app: {}".format(str(e)))
+        except Exception as e:
+            abort(500, 'kubernetes error: {}'.format(str(e)))
+
+        OPLog.create(
+            user_id=g.user.id,
+            appname=appname,
+            tag=release.tag,
+            action=OPType.DEPLOY_APP,
+        )
+        return DEFAULT_RETURN_VALUE
 
 
 @bp.route('/<appname>/canary/deploy', methods=['PUT'])
@@ -1167,72 +1254,73 @@ def deploy_app_canary(args, appname):
     tag = args["tag"]
     specs_text = args.get('specs_text', None)
 
-    app = App.get_by_name(appname)
-    if not app:
-        abort(404, 'app {} not found'.format(appname))
+    with lock_app(appname):
+        app = App.get_by_name(appname)
+        if not app:
+            abort(404, 'app {} not found'.format(appname))
 
-    if not g.user.granted_to_app(app):
-        abort(403, 'You\'re not granted to this app, ask administrators for permission')
+        if not g.user.granted_to_app(app):
+            abort(403, 'You\'re not granted to this app, ask administrators for permission')
 
-    if app.type != "web":
-        abort(403, "Only web app can deploy canary release")
+        if app.type != "web":
+            abort(403, "Only web app can deploy canary release")
 
-    release = app.get_release_by_tag(tag)
-    if not release:
-        abort(404, 'release {} not found.'.format(tag))
+        release = app.get_release_by_tag(tag)
+        if not release:
+            abort(404, 'release {} not found.'.format(tag))
 
-    if release.build_status is False:
-        abort(403, "please build release first")
+        if release.build_status is False:
+            abort(403, "please build release first")
 
-    if specs_text:
+        if specs_text:
+            try:
+                yaml_dict = yaml.load(release.specs_text)
+            except yaml.YAMLError as e:
+                abort(403, 'specs text is invalid yaml {}'.format(str(e)))
+            try:
+                specs = app_specs_schema.load(yaml_dict).data
+                fix_app_spec(specs, appname, tag)
+            except ValidationError as e:
+                abort(403, 'specs text is invalid {}'.format(str(e)))
+        else:
+            specs = release.specs
+            # update specs from release
+            replicas = args.get('replicas')
+            cpus = args.get('cpus')
+            memories = args.get('memories')
+
+            if not replicas:
+                replicas = specs.service.replicas
+            try:
+                specs = _update_specs(specs, cpus, memories, replicas)
+            except IndexError:
+                abort(403, "cpus or memories' index is larger than the number of containers")
+        # check secret and configmap
+        if specs_contains_secrets(specs):
+            try:
+                kube_api.get_secret(appname, cluster_name=cluster)
+            except Exception:
+                abort(403, "can't get secret, pls ensure you've added secret for {}".format(appname))
+        if specs_contains_configmap(specs):
+            try:
+                kube_api.get_config_map(appname, cluster_name=cluster)
+            except Exception:
+                abort(403, "can't get config, pls ensure you've added config for {}".format(appname))
+
         try:
-            yaml_dict = yaml.load(release.specs_text)
-        except yaml.YAMLError as e:
-            abort(403, 'specs text is invalid yaml {}'.format(str(e)))
-        try:
-            specs = app_specs_schema.load(yaml_dict).data
-            fix_app_spec(specs, appname, tag)
-        except ValidationError as e:
-            abort(403, 'specs text is invalid {}'.format(str(e)))
-    else:
-        specs = release.specs
-        # update specs from release
-        replicas = args.get('replicas')
-        cpus = args.get('cpus')
-        memories = args.get('memories')
+            kube_api.deploy_app_canary(specs, release.tag, cluster_name=cluster)
+        except ApiException as e:
+            abort(e.status, "Error when deploy app canary: {}".format(str(e)))
+        except Exception as e:
+            abort(500, 'kubernetes error: {}'.format(str(e)))
 
-        if not replicas:
-            replicas = specs.service.replicas
-        try:
-            specs = _update_specs(specs, cpus, memories, replicas)
-        except IndexError:
-            abort(403, "cpus or memories' index is larger than the number of containers")
-    # check secret and configmap
-    if specs_contains_secrets(specs):
-        try:
-            kube_api.get_secret(appname, cluster_name=cluster)
-        except Exception:
-            abort(403, "can't get secret, pls ensure you've added secret for {}".format(appname))
-    if specs_contains_configmap(specs):
-        try:
-            kube_api.get_config_map(appname, cluster_name=cluster)
-        except Exception:
-            abort(403, "can't get config, pls ensure you've added config for {}".format(appname))
-
-    try:
-        kube_api.deploy_app_canary(specs, release.tag, cluster_name=cluster)
-    except ApiException as e:
-        abort(e.status, "Error when deploy app canary: {}".format(str(e)))
-    except Exception as e:
-        abort(500, 'kubernetes error: {}'.format(str(e)))
-
-    OPLog.create(
-        user_id=g.user.id,
-        appname=appname,
-        tag=release.tag,
-        action=OPType.DEPLOY_APP_CANARY,
-    )
-    return DEFAULT_RETURN_VALUE
+        OPLog.create(
+            user_id=g.user.id,
+            appname=appname,
+            tag=release.tag,
+            action=OPType.DEPLOY_APP_CANARY,
+        )
+        return DEFAULT_RETURN_VALUE
 
 
 @bp.route('/<appname>/canary', methods=['DELETE'])
@@ -1245,32 +1333,33 @@ def delete_app_canary(args, appname):
     """
     cluster = args['cluster']
 
-    app = App.get_by_name(appname)
-    if not app:
-        abort(404, 'app {} not found'.format(appname))
+    with lock_app(appname):
+        app = App.get_by_name(appname)
+        if not app:
+            abort(404, 'app {} not found'.format(appname))
 
-    canary_info = _get_canary_info(appname, cluster)
-    if not canary_info['status']:
+        canary_info = _get_canary_info(appname, cluster)
+        if not canary_info['status']:
+            return DEFAULT_RETURN_VALUE
+
+        if not g.user.granted_to_app(app):
+            abort(403, 'You\'re not granted to this app, ask administrators for permission')
+
+        try:
+            kube_api.delete_app_canary(appname, cluster_name=cluster, ignore_404=True)
+        except ApiException as e:
+            abort(e.status, "Error when delete app canary: {}".format(str(e)))
+        except Exception as e:
+            logger.exception("kubernetes error: ")
+            abort(500, 'kubernetes error: {}'.format(str(e)))
+
+        OPLog.create(
+            user_id=g.user.id,
+            appname=appname,
+            # tag=release.tag,
+            action=OPType.DEPLOY_APP_CANARY,
+        )
         return DEFAULT_RETURN_VALUE
-
-    if not g.user.granted_to_app(app):
-        abort(403, 'You\'re not granted to this app, ask administrators for permission')
-
-    try:
-        kube_api.delete_app_canary(appname, cluster_name=cluster, ignore_404=True)
-    except ApiException as e:
-        abort(e.status, "Error when delete app canary: {}".format(str(e)))
-    except Exception as e:
-        logger.exception("kubernetes error: ")
-        abort(500, 'kubernetes error: {}'.format(str(e)))
-
-    OPLog.create(
-        user_id=g.user.id,
-        appname=appname,
-        # tag=release.tag,
-        action=OPType.DEPLOY_APP_CANARY,
-    )
-    return DEFAULT_RETURN_VALUE
 
 
 @bp.route('/<appname>/canary')

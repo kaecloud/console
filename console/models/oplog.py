@@ -14,6 +14,7 @@ from console.models.user import User
 
 class OPType(enum.Enum):
     REGISTER_RELEASE = 'register_release'
+    UPDATE_RELEASE = 'update_release'
     DEPLOY_APP = "deploy_app"
     DEPLOY_APP_CANARY = "deploy_app_canary"
     DELETE_APP_CANARY = "delete_app_canary"

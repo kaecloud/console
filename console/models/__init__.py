@@ -7,7 +7,7 @@ from .job import Job
 
 
 __all__ = [
-    'User', 'App', 'Release', 'AppUserRelation',
+    'User', 'App', 'Release', 'AppUserRelation', 'SpecVersion',
     'OPLog', 'OPType',
     'Job',
 ]

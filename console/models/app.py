@@ -216,6 +216,10 @@ class Release(BaseModelMixin):
         unmarshal_result = app_specs_schema.load(dic)
         return unmarshal_result.data
 
+    @cached_property
+    def specs_dict(self):
+        return yaml.load(self.specs_text)
+
     @property
     def service(self):
         return self.specs.service

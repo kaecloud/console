@@ -60,6 +60,11 @@ class BaseModelMixin(db.Model, Jsonized):
             db.session.rollback()
             logger.warn('Error during deleting: Object %s already deleted', self)
 
+    def save(self):
+        db.session.add(self)
+        db.session.commit()
+        return self
+
     def __eq__(self, other):
         return isinstance(other, self.__class__) and self.id == other.id
 

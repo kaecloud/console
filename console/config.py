@@ -35,7 +35,8 @@ SECRET_KEY = getenv('SECRET_KEY', default='testsecretkey')
 REDIS_URL = getenv('REDIS_URL', default='redis://127.0.0.1:6379/0')
 
 DEFAULT_NS = getenv('DEFAULT_NS', default='kae')
-BUILD_NS = getenv('BUILD_NS', default='kae')
+DEFAULT_APP_NS = getenv('DEFAULT_APP_NS', default='kae-app')
+DEFAULT_JOB_NS = getenv('DEFAULT_JOB_NS', default='kae-job')
 
 SQLALCHEMY_DATABASE_URI = getenv('SQLALCHEMY_DATABASE_URI')
 SQLALCHEMY_TRACK_MODIFICATIONS = getenv('SQLALCHEMY_TRACK_MODIFICATIONS', default=True, type=bool)

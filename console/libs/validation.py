@@ -29,6 +29,10 @@ def validate_user_id(id_):
 
 def validate_secret_data(dd):
     for k, v in dd.items():
+        if not k:
+            raise ValidationError("key must not be empty")
+        if not v:
+            raise ValidationError("value must not be empty")
         if not isinstance(v, (bytes, str)):
             raise ValidationError("value of secret should be string or bytes")
         if not isinstance(k, (bytes, str)):
@@ -232,6 +236,10 @@ class BuildArgsSchema(StrictSchema):
 
 class ClusterArgSchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
+
+
+class SpecsArgsSchema(StrictSchema):
+    specs_text = fields.Str(required=True)
 
 
 class ClusterCanarySchema(StrictSchema):
