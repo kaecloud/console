@@ -67,7 +67,7 @@ def validate_abtesting_rules(dd):
                 raise ValidationError("invalid argument for {} op".format(op))
             if op_args["start"] >= op_args["end"]:
                 raise ValidationError("the left bound can't bigger than the right bound of RANG")
-        elif op not in ('oneof', "not_oneof"):
+        elif op in ('oneof', "not_oneof"):
             if not (isinstance(op_args, list) or isinstance(op_args, tuple)):
                 raise ValidationError("invalid argument for {} op, only list and tuple are allowed".format(op))
         else:
