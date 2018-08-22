@@ -1496,4 +1496,6 @@ def get_app_abtesting_rules(args, appname):
     except Exception as e:
         logger.exception("internal error: ")
         abort(500, 'kubernetes error: {}'.format(str(e)))
+    if rules is None:
+        abort(404, "not found")
     return rules
