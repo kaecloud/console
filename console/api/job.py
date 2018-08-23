@@ -1,14 +1,10 @@
 import os
 import re
 import yaml
-import json
-import logging
-from flask import abort, g, stream_with_context, current_app
+from flask import abort, g
 import time
 import shlex
-import copy
 
-from addict import Dict
 from marshmallow import ValidationError
 from sqlalchemy.exc import IntegrityError
 from webargs.flaskparser import use_args
@@ -19,8 +15,8 @@ from console.models import Job
 from console.models.specs import load_job_specs
 from console.libs.k8s import kube_api, ApiException
 from console.libs.cloner import Cloner
-from console.config import JOBS_ROOT_DIR
-from console.libs.utils import bearychat_sendmsg, logger
+from console.config import JOBS_ROOT_DIR, DEFAULT_JOB_NS
+from console.libs.utils import logger
 from .util import handle_k8s_err
 
 bp = create_api_blueprint('job', __name__, 'job')
@@ -133,7 +129,7 @@ def create_job(args):
             abort(500, "clone and copy code error: {}".format(str(e)))
 
     with handle_k8s_err("Error when create job", clean_func=clean_func):
-        kube_api.create_job(specs)
+        kube_api.create_job(specs, namespace=DEFAULT_JOB_NS)
 
     try:
         job.grant_user(g.user)
@@ -168,7 +164,7 @@ def delete_job(jobname):
         abort(404, "job {} not found".format(jobname))
 
     with handle_k8s_err("Error when delete job"):
-        kube_api.delete_job(jobname, ignore_404=True)
+        kube_api.delete_job(jobname, ignore_404=True, namespace=DEFAULT_JOB_NS)
     job.delete()
     return DEFAULT_RETURN_VALUE
 
@@ -200,12 +196,12 @@ def restart_job(jobname):
     job.inc_version()
 
     with handle_k8s_err("Error when delete job"):
-        kube_api.delete_job(jobname, ignore_404=True)
+        kube_api.delete_job(jobname, ignore_404=True, namespace=DEFAULT_JOB_NS)
     specs = job.specs
     # FIXME: need to wait the old job to be deleted
     while True:
         try:
-            kube_api.get_job(jobname)
+            kube_api.get_job(jobname, namespace=DEFAULT_JOB_NS)
         except ApiException as e:
             if e.status == 404:
                 break
@@ -217,7 +213,7 @@ def restart_job(jobname):
             abort(500, "kubernetes error")
         time.sleep(2)
     with handle_k8s_err("Error when create job"):
-        kube_api.create_job(specs)
+        kube_api.create_job(specs, namespace=DEFAULT_JOB_NS)
     return DEFAULT_RETURN_VALUE
 
 
@@ -241,10 +237,10 @@ def get_job_log(jobname):
         abort(404, "job {} not found".format(jobname))
 
     try:
-        pods = kube_api.get_job_pods(jobname)
+        pods = kube_api.get_job_pods(jobname, namespace=DEFAULT_JOB_NS)
         if pods.items:
             podname = pods.items[0].metadata.name
-            data = kube_api.get_pod_log(podname=podname)
+            data = kube_api.get_pod_log(podname=podname, namespace=DEFAULT_JOB_NS)
             return {'data': data}
         else:
             return {'data': "no log, please retry"}

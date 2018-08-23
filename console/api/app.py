@@ -21,7 +21,7 @@ from console.models import App, Release, SpecVersion, User, OPLog, OPType
 from console.models.specs import fix_app_spec, app_specs_schema
 from console.libs.k8s import kube_api
 from console.libs.k8s import ApiException
-from console.config import DEFAULT_REGISTRY
+from console.config import DEFAULT_REGISTRY, DEFAULT_APP_NS
 from console.ext import rds
 
 bp = create_api_blueprint('app', __name__, 'app')
@@ -96,9 +96,10 @@ def _get_release(appname, git_tag):
 
 
 def _get_canary_info(appname, cluster):
+    ns = DEFAULT_APP_NS
     canary_appname = make_canary_appname(appname)
     try:
-        dp = kube_api.get_deployment(canary_appname, cluster_name=cluster, ignore_404=True)
+        dp = kube_api.get_deployment(canary_appname, cluster_name=cluster, ignore_404=True, namespace=ns)
     except ApiException as e:
         abort(e.status, "Error when delete app canary: {}".format(str(e)))
     except Exception as e:
@@ -193,12 +194,13 @@ def rollback_app(args, appname):
     cluster = args['cluster']
     app = get_app_raw(appname)
 
+    ns = DEFAULT_APP_NS
     canary_info = _get_canary_info(appname, cluster)
     if canary_info['status']:
         abort(403, "Please delete canary release before rollback app")
 
     try:
-        k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster)
+        k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, namespace=ns)
     except ApiException as e:
         return abort(e.status, "Error when get kubernetes deployment: {}".format(str(e)))
     except Exception as e:
@@ -226,7 +228,7 @@ def rollback_app(args, appname):
     try:
         kube_api.update_app(
             appname, prev_spec_version.specs, prev_spec_version.tag, prev_spec_version.id,
-            cluster_name=cluster, version=version, renew_id=renew_id)
+            cluster_name=cluster, version=version, renew_id=renew_id, namespace=ns)
     except ApiException as e:
         abort(e.status, "Error when update app: {}".format(str(e)))
     except Exception as e:
@@ -266,8 +268,9 @@ def renew_app(args, appname):
     """
     cluster = args['cluster']
     app = get_app_raw(appname)
+    ns = DEFAULT_APP_NS
     try:
-        kube_api.renew_app(appname, cluster_name=cluster)
+        kube_api.renew_app(appname, cluster_name=cluster, namespace=ns)
     except ApiException as e:
         abort(e.status, "Error when renew kubernetes object {}".format(str(e)))
     except Exception as e:
@@ -305,12 +308,13 @@ def delete_app(appname):
     app = get_app_raw(appname)
     tag = app.latest_release.tag if app.latest_release else ""
 
+    ns = DEFAULT_APP_NS
     # canary_info = _get_canary_info(appname, cluster)
     # if canary_info['status']:
     #     abort(403, "Please delete canary release first")
     try:
         with lock_app(appname):
-            kube_api.delete_app(appname, app.type, ignore_404=True, cluster_name=kube_api.ALL_CLUSTER)
+            kube_api.delete_app(appname, app.type, ignore_404=True, cluster_name=kube_api.ALL_CLUSTER, namespace=ns)
     except ApiException as e:
         abort(e.status, "Error when delete kubernetes object {}".format(str(e)))
     except Exception as e:
@@ -471,11 +475,12 @@ def get_app_pods(args, appname):
     canary = args["canary"]
     app = get_app_raw(appname)
     name = appname
+    ns = DEFAULT_APP_NS
     if canary:
         name = "{}-canary".format(appname)
 
     try:
-        return kube_api.get_app_pods(name=name, cluster_name=cluster)
+        return kube_api.get_app_pods(name=name, cluster_name=cluster, namespace=ns)
     except ApiException as e:
         abort(e.status, "Error when get kubernetes pods object: {}".format(str(e)))
     except Exception as e:
@@ -509,10 +514,11 @@ def get_app_deployment(args, appname):
     canary = args['canary']
     app = get_app_raw(appname)
     name = "{}-canary".format(appname) if canary else appname
+    ns = DEFAULT_APP_NS
     if not app:
         abort(404, "app {} not found".format(appname))
     try:
-        return kube_api.get_deployment(name, cluster_name=cluster)
+        return kube_api.get_deployment(name, cluster_name=cluster, namespace=ns)
     except ApiException as e:
         abort(e.status, "Error when get kubernetes deployment object: {}".format(str(e)))
     except Exception as e:
@@ -716,10 +722,11 @@ def create_secret(args, appname):
     """
     cluster = args['cluster']
     data = args['data']
+    ns = DEFAULT_APP_NS
     # check if the user can access the App
     get_app_raw(appname)
     try:
-        kube_api.create_or_update_secret(appname, data, cluster_name=cluster)
+        kube_api.create_or_update_secret(appname, data, cluster_name=cluster, namespace=ns)
     except ApiException as e:
         abort(e.status, str(e))
     except Exception as e:
@@ -753,10 +760,11 @@ def get_secret(args, appname):
           }
     """
     cluster = args['cluster']
+    ns = DEFAULT_APP_NS
     # check if the user can access the App
     get_app_raw(appname)
     try:
-        return kube_api.get_secret(appname, cluster_name=cluster)
+        return kube_api.get_secret(appname, cluster_name=cluster, namespace=ns)
     except ApiException as e:
         abort(e.status, str(e))
     except Exception as e:
@@ -792,10 +800,11 @@ def create_config_map(args, appname):
     cluster = args['cluster']
     data = args['data']
     config_name = args['config_name']
+    ns = DEFAULT_APP_NS
     # check if the user can access the App
     get_app_raw(appname)
     try:
-        kube_api.create_or_update_config_map(appname, data, config_name=config_name, cluster_name=cluster)
+        kube_api.create_or_update_config_map(appname, data, config_name=config_name, cluster_name=cluster, namespace=ns)
     except ApiException as e:
         abort(e.status, str(e))
     except Exception as e:
@@ -829,10 +838,11 @@ def get_config_map(args, appname):
              "aaa=11"
     """
     cluster = args['cluster']
+    ns = DEFAULT_APP_NS
     # check if the user can access the App
     get_app_raw(appname)
     try:
-        raw_data = kube_api.get_config_map(appname, cluster_name=cluster)
+        raw_data = kube_api.get_config_map(appname, cluster_name=cluster, namespace=ns)
         if len(raw_data) != 1:
             logger.error("configmap must contain only one item, this maybe caused by bug, or the configmap has been changed by external operation")
             abort(500, "internal error")
@@ -1008,11 +1018,12 @@ def scale_app(args, appname):
           error: "xxx"
     """
     cluster = args['cluster']
+    ns = DEFAULT_APP_NS
     app = App.get_by_name(appname)
     if not app:
         abort(404, 'app {} not found'.format(appname))
     try:
-        k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster)
+        k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, namespace=ns)
     except ApiException as e:
         abort(e.status, "Error when get deployment: {}".format(str(e)))
     except Exception as e:
@@ -1049,7 +1060,8 @@ def scale_app(args, appname):
     else:
         renew_id = k8s_deployment.spec.template.metadata.annotations.get("renew_id", None)
     try:
-        kube_api.update_app(appname, specs, release_tag, spec_version.id, version=version, renew_id=renew_id, cluster_name=cluster)
+        kube_api.update_app(appname, specs, release_tag, spec_version.id, version=version,
+                            renew_id=renew_id, cluster_name=cluster, namespace=ns)
     except ApiException as e:
         abort(e.status, "Error when update app: {}".format(str(e)))
     except Exception as e:
@@ -1116,6 +1128,7 @@ def deploy_app(args, appname):
     cluster = args['cluster']
     tag = args["tag"]
     specs_text = args.get('specs_text', None)
+    ns = DEFAULT_APP_NS
 
     with lock_app(appname):
         app = App.get_by_name(appname)
@@ -1133,7 +1146,7 @@ def deploy_app(args, appname):
             abort(404, 'release {} not found.'.format(tag))
 
         try:
-            k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, ignore_404=True)
+            k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, ignore_404=True, namespace=ns)
         except ApiException as e:
             abort(e.status, "Error when get deployment: {}".format(str(e)))
         except Exception as e:
@@ -1171,12 +1184,12 @@ def deploy_app(args, appname):
         # check secret and configmap
         if specs_contains_secrets(specs):
             try:
-                kube_api.get_secret(appname, cluster_name=cluster)
+                kube_api.get_secret(appname, cluster_name=cluster, namespace=ns)
             except Exception:
                 abort(403, "can't get secret, pls ensure you've added secret for {}".format(appname))
         if specs_contains_configmap(specs):
             try:
-                kube_api.get_config_map(appname, cluster_name=cluster)
+                kube_api.get_config_map(appname, cluster_name=cluster, namespace=ns)
             except Exception:
                 abort(403, "can't get config, pls ensure you've added config for {}".format(appname))
 
@@ -1187,7 +1200,7 @@ def deploy_app(args, appname):
             abort(500, "internal server error")
 
         try:
-            kube_api.deploy_app(specs, release.tag, spec_version.id, cluster_name=cluster)
+            kube_api.deploy_app(specs, release.tag, spec_version.id, cluster_name=cluster, namespace=ns)
         except ApiException as e:
             abort(e.status, "Error when deploy app: {}".format(str(e)))
         except Exception as e:
@@ -1254,6 +1267,8 @@ def deploy_app_canary(args, appname):
     tag = args["tag"]
     specs_text = args.get('specs_text', None)
 
+    ns = DEFAULT_APP_NS
+
     with lock_app(appname):
         app = App.get_by_name(appname)
         if not app:
@@ -1298,17 +1313,17 @@ def deploy_app_canary(args, appname):
         # check secret and configmap
         if specs_contains_secrets(specs):
             try:
-                kube_api.get_secret(appname, cluster_name=cluster)
+                kube_api.get_secret(appname, cluster_name=cluster, namespace=ns)
             except Exception:
                 abort(403, "can't get secret, pls ensure you've added secret for {}".format(appname))
         if specs_contains_configmap(specs):
             try:
-                kube_api.get_config_map(appname, cluster_name=cluster)
+                kube_api.get_config_map(appname, cluster_name=cluster, namespace=ns)
             except Exception:
                 abort(403, "can't get config, pls ensure you've added config for {}".format(appname))
 
         try:
-            kube_api.deploy_app_canary(specs, release.tag, cluster_name=cluster)
+            kube_api.deploy_app_canary(specs, release.tag, cluster_name=cluster, namespace=ns)
         except ApiException as e:
             abort(e.status, "Error when deploy app canary: {}".format(str(e)))
         except Exception as e:
@@ -1333,6 +1348,8 @@ def delete_app_canary(args, appname):
     """
     cluster = args['cluster']
 
+    ns = DEFAULT_APP_NS
+
     with lock_app(appname):
         app = App.get_by_name(appname)
         if not app:
@@ -1346,7 +1363,7 @@ def delete_app_canary(args, appname):
             abort(403, 'You\'re not granted to this app, ask administrators for permission')
 
         try:
-            kube_api.delete_app_canary(appname, cluster_name=cluster, ignore_404=True)
+            kube_api.delete_app_canary(appname, cluster_name=cluster, ignore_404=True, namespace=ns)
         except ApiException as e:
             abort(e.status, "Error when delete app canary: {}".format(str(e)))
         except Exception as e:
@@ -1424,6 +1441,9 @@ def set_app_abtesting_rules(args, appname):
     """
     cluster = args['cluster']
     rules = args["rules"]
+
+    ns = DEFAULT_APP_NS
+
     app = App.get_by_name(appname)
     if not app:
         abort(404, 'app {} not found'.format(appname))
@@ -1436,7 +1456,7 @@ def set_app_abtesting_rules(args, appname):
         abort(403, "you must deploy canary version before adding abtesting rules")
 
     try:
-        kube_api.set_abtesting_rules(appname, rules, cluster_name=cluster)
+        kube_api.set_abtesting_rules(appname, rules, cluster_name=cluster, namespace=ns)
     except ApiException as e:
         abort(e.status, "Error when add abtesting rule: {}".format(str(e)))
     except Exception as e:
@@ -1482,6 +1502,9 @@ def get_app_abtesting_rules(args, appname):
           error: "xxx"
     """
     cluster = args['cluster']
+
+    ns = DEFAULT_APP_NS
+
     app = App.get_by_name(appname)
     if not app:
         abort(404, 'app {} not found'.format(appname))
@@ -1490,7 +1513,7 @@ def get_app_abtesting_rules(args, appname):
         abort(403, 'You\'re not granted to this app, ask administrators for permission')
 
     try:
-        rules = kube_api.get_abtesting_rules(appname, cluster_name=cluster)
+        rules = kube_api.get_abtesting_rules(appname, cluster_name=cluster, namespace=ns)
     except ApiException as e:
         abort(e.status, "Error when get abtesting rule: {}".format(str(e)))
     except Exception as e:

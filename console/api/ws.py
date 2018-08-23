@@ -13,6 +13,7 @@ from console.libs.view import create_api_blueprint, user_require
 from console.models import App, Job
 from console.tasks import celery_task_stream_response, build_image
 from console.ext import rds, db
+from console.config import DEFAULT_APP_NS, DEFAULT_JOB_NS
 
 ws = create_api_blueprint('ws', __name__, url_prefix='ws', jsonize=False, handle_http_error=False)
 
@@ -45,6 +46,7 @@ def get_app_pods_events(socket, appname):
     canary = args['canary']
     name = "{}-canary".format(appname) if canary else appname
     channel = make_app_watcher_channel_name(cluster, name)
+    ns = DEFAULT_APP_NS
 
     app = App.get_by_name(appname)
     if not app:
@@ -58,7 +60,7 @@ def get_app_pods_events(socket, appname):
     # since this request may pend long time, so we remove the db session
     # otherwise we may get error like `sqlalchemy.exc.TimeoutError: QueuePool limit of size 50 overflow 10 reached, connection timed out`
     with session_removed():
-        pod_list = kube_api.get_app_pods(name, cluster_name=cluster)
+        pod_list = kube_api.get_app_pods(name, cluster_name=cluster, namespace=ns)
         pods = pod_list.to_dict()
         for item in pods['items']:
             data = {
@@ -170,16 +172,18 @@ def get_job_log_events(socket, jobname):
         schema:
           type: object
     """
+    ns = DEFAULT_JOB_NS
+
     job = Job.get_by_name(jobname)
     if not job:
         socket.send(json.dumps({"error": "job {} not found".format(jobname)}))
         return
     try:
         with session_removed():
-            pods = kube_api.get_job_pods(jobname)
+            pods = kube_api.get_job_pods(jobname, namespace=ns)
             if pods.items:
                 podname = pods.items[0].metadata.name
-                for line in kube_api.follow_pod_log(podname=podname):
+                for line in kube_api.follow_pod_log(podname=podname, namespace=ns):
                     try:
                         socket.send(json.dumps({'data': line}))
                     except WebSocketError as e:
