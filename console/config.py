@@ -178,10 +178,20 @@ def setup_config_from_secrets():
         dst_docker_cfg = os.path.join(CONTAINER_CONFIG_DIR, 'config.json')
         shutil.copyfile(src_docker_cfg, dst_docker_cfg)
 
+    def setup_kubeconfig():
+        src_kubeconfig = os.path.join(K8S_SECRETS_DIR, 'kubeconfig')
+        dst_kubeconfig = os.path.expanduser('~/.kube/config')
+
+        if not os.path.exists(src_kubeconfig):
+            return
+        pathlib.Path(os.path.dirname(dst_kubeconfig)).mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src_kubeconfig, dst_kubeconfig)
+
     pathlib.Path(CONTAINER_CONFIG_DIR).mkdir(parents=True, exist_ok=True)
 
     setup_git_ssh()
     setup_docker_config_json()
+    setup_kubeconfig()
 
     # copy config.py
     copy_map = {
