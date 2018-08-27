@@ -29,8 +29,10 @@ class OPLog(BaseModelMixin):
 
     __tablename__ = 'operation_log'
     user_id = db.Column(db.Integer, nullable=False, default=0, index=True)
+    app_id = db.Column(db.Integer, nullable=False, default=0, index=True)
     appname = db.Column(db.CHAR(64), nullable=False, default='', index=True)
     tag = db.Column(db.CHAR(64), nullable=False, default='', index=True)
+    cluster = db.Column(db.CHAR(64), nullable=False, default='')
     action = db.Column(Enum34(OPType))
     content = db.Column(db.Text)
 
@@ -54,9 +56,9 @@ class OPLog(BaseModelMixin):
         return cls.query.filter(sqlalchemy.and_(*filters)).order_by(cls.id.desc()).limit(limit).all()
 
     @classmethod
-    def create(cls, user_id=None, appname=None,
-               tag=None, action=None, content=None):
-        op_log = cls(user_id=user_id,
+    def create(cls, user_id=None, app_id=None, appname=None,
+               tag=None, action=None, content=None, cluster=''):
+        op_log = cls(user_id=user_id, app_id=app_id, cluster=cluster,
                      appname=appname, tag=tag, action=action, content=content)
         db.session.add(op_log)
         db.session.commit()
@@ -69,7 +71,7 @@ class OPLog(BaseModelMixin):
     def to_dict(self):
         dic = {c.key: getattr(self, c.key)
                for c in inspect(self).mapper.column_attrs
-               if c.key not in ('user_id', 'tag')}
+               if c.key not in ('user_id', 'app_id')}
         user = User.get_by_id(self.user_id)
         dic['username'] = user.nickname
         dic['action'] = self.action.name

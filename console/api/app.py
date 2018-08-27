@@ -247,7 +247,9 @@ def rollback_app(args, appname):
 
     OPLog.create(
         user_id=g.user.id,
+        app_id=app.id,
         appname=appname,
+        cluster=cluster,
         tag=app.latest_release.tag,
         action=OPType.ROLLBACK_APP,
         content='rollback app `hello`(revision {})'.format(revision),
@@ -290,7 +292,9 @@ def renew_app(args, appname):
 
     OPLog.create(
         user_id=g.user.id,
+        app_id=app.id,
         appname=appname,
+        cluster=cluster,
         tag=app.latest_release.tag,
         action=OPType.RENEW_APP,
     )
@@ -335,6 +339,7 @@ def delete_app(appname):
 
     OPLog.create(
         user_id=g.user.id,
+        app_id=app.id,
         appname=appname,
         tag=tag,
         action=OPType.DELETE_APP,
@@ -662,6 +667,7 @@ def update_release_spec(args, appname, tag):
 
     OPLog.create(
         user_id=g.user.id,
+        app_id=release.app_id,
         appname=appname,
         tag=release.tag,
         action=OPType.UPDATE_RELEASE,
@@ -697,7 +703,7 @@ def get_app_oplogs(appname):
             created: 2018-05-24 10:00:25
     """
     app = get_app_raw(appname)
-    return OPLog.get_by(appname=appname)
+    return OPLog.get_by(app_id=app.id)
 
 
 @bp.route('/<appname>/secret', methods=['POST'])
@@ -980,6 +986,7 @@ def register_release(args):
     OPLog.create(
         user_id=g.user.id,
         appname=appname,
+        app_id=app.id,
         tag=release.tag,
         action=OPType.REGISTER_RELEASE,
     )
@@ -1081,7 +1088,9 @@ def scale_app(args, appname):
 
     OPLog.create(
         user_id=g.user.id,
+        app_id=app.id,
         appname=appname,
+        cluster=cluster,
         tag=release.tag,
         action=OPType.SCALE_APP,
         content="scale app `hello`(replicas {})".format(replicas)
@@ -1142,13 +1151,14 @@ def deploy_app(args, appname):
     specs_text = args.get('specs_text', None)
     ns = DEFAULT_APP_NS
 
-    with lock_app(appname):
-        app = App.get_by_name(appname)
-        if not app:
-            abort(404, 'app {} not found'.format(appname))
+    app = App.get_by_name(appname)
+    if not app:
+        abort(404, 'app {} not found'.format(appname))
 
-        if not g.user.granted_to_app(app):
-            abort(403, 'You\'re not granted to this app, ask administrators for permission')
+    if not g.user.granted_to_app(app):
+        abort(403, 'You\'re not granted to this app, ask administrators for permission')
+
+    with lock_app(appname):
 
         canary_info = _get_canary_info(appname, cluster)
         if canary_info['status']:
@@ -1220,6 +1230,8 @@ def deploy_app(args, appname):
 
         OPLog.create(
             user_id=g.user.id,
+            app_id=app.id,
+            cluster=cluster,
             appname=appname,
             tag=release.tag,
             action=OPType.DEPLOY_APP,
@@ -1343,7 +1355,9 @@ def deploy_app_canary(args, appname):
 
         OPLog.create(
             user_id=g.user.id,
+            app_id=app.id,
             appname=appname,
+            cluster=cluster,
             tag=release.tag,
             action=OPType.DEPLOY_APP_CANARY,
         )
@@ -1362,11 +1376,11 @@ def delete_app_canary(args, appname):
 
     ns = DEFAULT_APP_NS
 
-    with lock_app(appname):
-        app = App.get_by_name(appname)
-        if not app:
-            abort(404, 'app {} not found'.format(appname))
+    app = App.get_by_name(appname)
+    if not app:
+        abort(404, 'app {} not found'.format(appname))
 
+    with lock_app(appname):
         canary_info = _get_canary_info(appname, cluster)
         if not canary_info['status']:
             return DEFAULT_RETURN_VALUE
@@ -1384,7 +1398,9 @@ def delete_app_canary(args, appname):
 
         OPLog.create(
             user_id=g.user.id,
+            app_id=app.id,
             appname=appname,
+            cluster=cluster,
             # tag=release.tag,
             action=OPType.DEPLOY_APP_CANARY,
         )
