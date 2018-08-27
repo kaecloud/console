@@ -158,6 +158,13 @@ class Release(BaseModelMixin):
         logger.warn('Deleting release %s', self)
         return super(Release, self).delete()
 
+    def get_previous_version(self, n=0):
+        q_set = Release.query.filter(Release.app_id == self.app_id, Release.id < self.id).order_by(Release.id.desc()).limit(n+1).all()
+        if len(q_set) <= n:
+            return None
+        else:
+            return q_set[n]
+
     @classmethod
     def get(cls, id):
         r = super(Release, cls).get(id)
@@ -283,12 +290,9 @@ class SpecVersion(BaseModelMixin):
         else:
             return q[start:start + limit]
 
-    def get_previous_version(self, n=0):
-        q_set = SpecVersion.query.filter(SpecVersion.id < self.id).order_by(SpecVersion.id.desc()).limit(n+1).all()
-        if len(q_set) <= n:
-            return None
-        else:
-            return q_set[n]
+    @classmethod
+    def get_newest_version_by_tag_app(cls, app_id, tag):
+        return SpecVersion.query.filter_by(app_id=app_id, tag=tag).order_by(SpecVersion.id.desc()).first()
 
     @property
     def release(self):

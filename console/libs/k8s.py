@@ -248,8 +248,8 @@ class ClientApiBundle(object):
         deployment.spec.template.metadata.annotations['renew_id'] = id_generator(10)
         self.extensions_api.replace_namespaced_deployment(name=appname, namespace=namespace, body=deployment)
 
-    def deploy_app(self, spec, release_tag, spec_version_id, namespace="default"):
-        deployments, services, ingress = self.create_resource_dict(spec, release_tag, spec_version_id)
+    def deploy_app(self, spec, release_tag, namespace="default"):
+        deployments, services, ingress = self.create_resource_dict(spec, release_tag)
         for d in deployments:
             self.apply(d, namespace=namespace)
         for s in services:
@@ -334,9 +334,8 @@ class ClientApiBundle(object):
             if not (e.status == 404 and ignore_404 is True):
                 raise e
 
-    def update_app(self, appname, spec, release_tag, spec_version_id, namespace='default', version=None, renew_id=None):
+    def update_app(self, appname, spec, release_tag, namespace='default', version=None, renew_id=None):
         dp_annotations = {
-            'spec_version_id': str(spec_version_id),
             'release_tag': release_tag,
         }
         d = self._create_deployment_dict(spec, version=version, renew_id=renew_id, annotations=dp_annotations)
@@ -412,7 +411,7 @@ class ClientApiBundle(object):
                 raise e
 
     @classmethod
-    def create_resource_dict(cls, spec, release_tag, spec_version_id):
+    def create_resource_dict(cls, spec, release_tag):
         deployments = []
         services = []
         ingress = []
@@ -420,7 +419,6 @@ class ClientApiBundle(object):
 
         if apptype in ("web", "worker"):
             dp_annotations = {
-                'spec_version_id': str(spec_version_id),
                 'release_tag': release_tag,
             }
             obj = cls._create_deployment_dict(spec, annotations=dp_annotations)

@@ -208,31 +208,39 @@ def rollback_app(args, appname):
         return abort(500, "internal error")
 
     version = k8s_deployment.metadata.resource_version
+    release_tag = k8s_deployment.metadata.annotations['release_tag']
 
     if k8s_deployment.spec.template.metadata.annotations is None:
         renew_id = None
     else:
         renew_id = k8s_deployment.spec.template.metadata.annotations.get("renew_id", None)
 
-    try:
-        spec_version_id = int(k8s_deployment.metadata.annotations.get("spec_version_id", None))
-        spec_version = SpecVersion.get(spec_version_id)
-        prev_spec_version = spec_version.get_previous_version(revision)
-    except:
-        logger.exception("can't get previous spec version")
-        return abort(500, "internal error")
+    release = Release.get_by_app_and_tag(appname, release_tag)
+    if not release:
+        abort(404, 'Release `%s, %s` not found' % (appname, release_tag))
+    prev_release = release.get_previous_version(revision)
+    if not prev_release:
+        abort(404, 'Previous Release `%s, %s, %s` not found' % (appname, release_tag, revision))
+    if not prev_release.build_status:
+        abort(403, "Release `%s, %s` is not built" % (appname, prev_release.tag))
+    prev_spec_version = SpecVersion.get_newest_version_by_tag_app(app.id, prev_release.tag)
 
     if prev_spec_version is None:
-        abort(403, "no previous version, so you can't rollback")
+        specs = prev_release.specs
+    else:
+        specs = prev_spec_version.specs
+
+    # we never decrease replicas when rollback
+    if k8s_deployment is not None and k8s_deployment.spec.replicas > specs.service.replicas:
+        specs.service.replicas = k8s_deployment.spec.replicas
 
     try:
         kube_api.update_app(
-            appname, prev_spec_version.specs, prev_spec_version.tag, prev_spec_version.id,
-            cluster_name=cluster, version=version, renew_id=renew_id, namespace=ns)
+            appname, specs, prev_release.tag, cluster_name=cluster, version=version, renew_id=renew_id, namespace=ns)
     except ApiException as e:
         abort(e.status, "Error when update app: {}".format(str(e)))
     except Exception as e:
-        logger.exception("hahah")
+        logger.exception("Rollback: ")
         abort(500, 'replace kubernetes deployment error: {}, {}'.format(str(e), version))
 
     OPLog.create(
@@ -1033,11 +1041,9 @@ def scale_app(args, appname):
     version = k8s_deployment.metadata.resource_version
 
     try:
-        spec_version_id = int(k8s_deployment.metadata.annotations.get("spec_version_id", None))
-        spec_version = SpecVersion.get(spec_version_id)
-        spec_version = spec_version.get(spec_version_id)
+        spec_version = SpecVersion.get_newest_version_by_tag_app(app.id, release_tag)
     except:
-        logger.exception("can't get previous spec version")
+        logger.exception("can't get current spec version")
         return abort(500, "internal error")
 
     release = Release.get_by_app_and_tag(appname, release_tag)
@@ -1060,7 +1066,7 @@ def scale_app(args, appname):
     else:
         renew_id = k8s_deployment.spec.template.metadata.annotations.get("renew_id", None)
     try:
-        kube_api.update_app(appname, specs, release_tag, spec_version.id, version=version,
+        kube_api.update_app(appname, specs, release_tag, version=version,
                             renew_id=renew_id, cluster_name=cluster, namespace=ns)
     except ApiException as e:
         abort(e.status, "Error when update app: {}".format(str(e)))
@@ -1194,13 +1200,13 @@ def deploy_app(args, appname):
                 abort(403, "can't get config, pls ensure you've added config for {}".format(appname))
 
         try:
-            spec_version = SpecVersion.create(app, tag, specs)
+            SpecVersion.create(app, tag, specs)
         except:
             logger.exception("can't create spec version")
             abort(500, "internal server error")
 
         try:
-            kube_api.deploy_app(specs, release.tag, spec_version.id, cluster_name=cluster, namespace=ns)
+            kube_api.deploy_app(specs, release.tag, cluster_name=cluster, namespace=ns)
         except ApiException as e:
             abort(e.status, "Error when deploy app: {}".format(str(e)))
         except Exception as e:
