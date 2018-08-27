@@ -195,53 +195,55 @@ def rollback_app(args, appname):
     app = get_app_raw(appname)
 
     ns = DEFAULT_APP_NS
-    canary_info = _get_canary_info(appname, cluster)
-    if canary_info['status']:
-        abort(403, "Please delete canary release before rollback app")
 
-    try:
-        k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, namespace=ns)
-    except ApiException as e:
-        return abort(e.status, "Error when get kubernetes deployment: {}".format(str(e)))
-    except Exception as e:
-        logger.exception("failed to get kubernetes deployment of app {}".format(appname))
-        return abort(500, "internal error")
+    with lock_app(appname):
+        canary_info = _get_canary_info(appname, cluster)
+        if canary_info['status']:
+            abort(403, "Please delete canary release before rollback app")
 
-    version = k8s_deployment.metadata.resource_version
-    release_tag = k8s_deployment.metadata.annotations['release_tag']
+        try:
+            k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, namespace=ns)
+        except ApiException as e:
+            return abort(e.status, "Error when get kubernetes deployment: {}".format(str(e)))
+        except Exception as e:
+            logger.exception("failed to get kubernetes deployment of app {}".format(appname))
+            return abort(500, "internal error")
 
-    if k8s_deployment.spec.template.metadata.annotations is None:
-        renew_id = None
-    else:
-        renew_id = k8s_deployment.spec.template.metadata.annotations.get("renew_id", None)
+        version = k8s_deployment.metadata.resource_version
+        release_tag = k8s_deployment.metadata.annotations['release_tag']
 
-    release = Release.get_by_app_and_tag(appname, release_tag)
-    if not release:
-        abort(404, 'Release `%s, %s` not found' % (appname, release_tag))
-    prev_release = release.get_previous_version(revision)
-    if not prev_release:
-        abort(404, 'Previous Release `%s, %s, %s` not found' % (appname, release_tag, revision))
-    if not prev_release.build_status:
-        abort(403, "Release `%s, %s` is not built" % (appname, prev_release.tag))
-    prev_spec_version = SpecVersion.get_newest_version_by_tag_app(app.id, prev_release.tag)
+        if k8s_deployment.spec.template.metadata.annotations is None:
+            renew_id = None
+        else:
+            renew_id = k8s_deployment.spec.template.metadata.annotations.get("renew_id", None)
 
-    if prev_spec_version is None:
-        specs = prev_release.specs
-    else:
-        specs = prev_spec_version.specs
+        release = Release.get_by_app_and_tag(appname, release_tag)
+        if not release:
+            abort(404, 'Release `%s, %s` not found' % (appname, release_tag))
+        prev_release = release.get_previous_version(revision)
+        if not prev_release:
+            abort(404, 'Previous Release `%s, %s, %s` not found' % (appname, release_tag, revision))
+        if not prev_release.build_status:
+            abort(403, "Release `%s, %s` is not built" % (appname, prev_release.tag))
+        prev_spec_version = SpecVersion.get_newest_version_by_tag_app(app.id, prev_release.tag)
 
-    # we never decrease replicas when rollback
-    if k8s_deployment is not None and k8s_deployment.spec.replicas > specs.service.replicas:
-        specs.service.replicas = k8s_deployment.spec.replicas
+        if prev_spec_version is None:
+            specs = prev_release.specs
+        else:
+            specs = prev_spec_version.specs
 
-    try:
-        kube_api.update_app(
-            appname, specs, prev_release.tag, cluster_name=cluster, version=version, renew_id=renew_id, namespace=ns)
-    except ApiException as e:
-        abort(e.status, "Error when update app: {}".format(str(e)))
-    except Exception as e:
-        logger.exception("Rollback: ")
-        abort(500, 'replace kubernetes deployment error: {}, {}'.format(str(e), version))
+        # we never decrease replicas when rollback
+        if k8s_deployment is not None and k8s_deployment.spec.replicas > specs.service.replicas:
+            specs.service.replicas = k8s_deployment.spec.replicas
+
+        try:
+            kube_api.update_app(
+                appname, specs, prev_release.tag, cluster_name=cluster, version=version, renew_id=renew_id, namespace=ns)
+        except ApiException as e:
+            abort(e.status, "Error when update app: {}".format(str(e)))
+        except Exception as e:
+            logger.exception("Rollback: ")
+            abort(500, 'replace kubernetes deployment error: {}, {}'.format(str(e), version))
 
     OPLog.create(
         user_id=g.user.id,
@@ -277,12 +279,14 @@ def renew_app(args, appname):
     cluster = args['cluster']
     app = get_app_raw(appname)
     ns = DEFAULT_APP_NS
-    try:
-        kube_api.renew_app(appname, cluster_name=cluster, namespace=ns)
-    except ApiException as e:
-        abort(e.status, "Error when renew kubernetes object {}".format(str(e)))
-    except Exception as e:
-        abort(500, "Error when renew app {}".format(str(e)))
+
+    with lock_app(appname):
+        try:
+            kube_api.renew_app(appname, cluster_name=cluster, namespace=ns)
+        except ApiException as e:
+            abort(e.status, "Error when renew kubernetes object {}".format(str(e)))
+        except Exception as e:
+            abort(500, "Error when renew app {}".format(str(e)))
 
     OPLog.create(
         user_id=g.user.id,
@@ -1030,48 +1034,50 @@ def scale_app(args, appname):
     app = App.get_by_name(appname)
     if not app:
         abort(404, 'app {} not found'.format(appname))
-    try:
-        k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, namespace=ns)
-    except ApiException as e:
-        abort(e.status, "Error when get deployment: {}".format(str(e)))
-    except Exception as e:
-        abort(500, "error when get deployment {}".format(str(e)))
 
-    release_tag = k8s_deployment.metadata.annotations['release_tag']
-    version = k8s_deployment.metadata.resource_version
+    with lock_app(appname):
+        try:
+            k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, namespace=ns)
+        except ApiException as e:
+            abort(e.status, "Error when get deployment: {}".format(str(e)))
+        except Exception as e:
+            abort(500, "error when get deployment {}".format(str(e)))
 
-    try:
-        spec_version = SpecVersion.get_newest_version_by_tag_app(app.id, release_tag)
-    except:
-        logger.exception("can't get current spec version")
-        return abort(500, "internal error")
+        release_tag = k8s_deployment.metadata.annotations['release_tag']
+        version = k8s_deployment.metadata.resource_version
 
-    release = Release.get_by_app_and_tag(appname, release_tag)
-    specs = spec_version.specs
+        try:
+            spec_version = SpecVersion.get_newest_version_by_tag_app(app.id, release_tag)
+        except:
+            logger.exception("can't get current spec version")
+            return abort(500, "internal error")
 
-    # update current specs
-    replicas = args.get('replicas')
-    cpus = args.get('cpus')
-    memories = args.get('memories')
-    if not replicas:
-        replicas = k8s_deployment.spec.replicas
+        release = Release.get_by_app_and_tag(appname, release_tag)
+        specs = spec_version.specs
 
-    try:
-        specs = _update_specs(specs, cpus, memories, replicas)
-    except IndexError:
-        abort(403, "cpus or memories' index is larger than the number of containers")
+        # update current specs
+        replicas = args.get('replicas')
+        cpus = args.get('cpus')
+        memories = args.get('memories')
+        if not replicas:
+            replicas = k8s_deployment.spec.replicas
 
-    if k8s_deployment.spec.template.metadata.annotations is None:
-        renew_id = None
-    else:
-        renew_id = k8s_deployment.spec.template.metadata.annotations.get("renew_id", None)
-    try:
-        kube_api.update_app(appname, specs, release_tag, version=version,
-                            renew_id=renew_id, cluster_name=cluster, namespace=ns)
-    except ApiException as e:
-        abort(e.status, "Error when update app: {}".format(str(e)))
-    except Exception as e:
-        abort(500, 'replace kubernetes deployment error: {}, {}'.format(str(e), version))
+        try:
+            specs = _update_specs(specs, cpus, memories, replicas)
+        except IndexError:
+            abort(403, "cpus or memories' index is larger than the number of containers")
+
+        if k8s_deployment.spec.template.metadata.annotations is None:
+            renew_id = None
+        else:
+            renew_id = k8s_deployment.spec.template.metadata.annotations.get("renew_id", None)
+        try:
+            kube_api.update_app(appname, specs, release_tag, version=version,
+                                renew_id=renew_id, cluster_name=cluster, namespace=ns)
+        except ApiException as e:
+            abort(e.status, "Error when update app: {}".format(str(e)))
+        except Exception as e:
+            abort(500, 'replace kubernetes deployment error: {}, {}'.format(str(e), version))
 
     OPLog.create(
         user_id=g.user.id,
