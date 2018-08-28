@@ -55,12 +55,21 @@ GITLAB_HOST = getenv('GITLAB_HOST', default='gitlab.com')
 EMAIL_DOMAIN = getenv('EMAIL_DOMAIN')
 BOT_WEBHOOK_URL = getenv('BOT_WEBHOOK_URL')
 
-BASE_DOMAIN = getenv('BASE_DOMAIN')
-BASE_TLS_SECRET = getenv('BASE_TLS_SECRET')
-
 DEFAULT_REGISTRY = "registry.cn-hangzhou.aliyuncs.com/kae"
 REGISTRY_AUTHS = {
     "registry.cn-hangzhou.aliyuncs.com": "aliyun",
+}
+
+# if you use incluster config, then the cluster name should be `incluster`.
+CLUSTER_BASE_DOMAIN_MAP = {
+    "cluster1": {
+        "domain": "xxxx",        # base domain, every app will get a host name `appname.basedoamin`
+        "tls_secret": "haha",    # name of the secret which contains the certification
+    },
+    "cluster2": {
+        "domain": "xxx",
+        "tls_secret": "xxxx",
+    }
 }
 
 HOST_DATA_DIR = "/data/kae"
@@ -104,8 +113,12 @@ if SQLALCHEMY_DATABASE_URI is None:
 if REDIS_URL is None:
     raise ValueError("REDIS_URL can't be None")
 
-if BASE_DOMAIN is None:
-    raise ValueError("BASE_DOMAIN can't be None")
+# validate CLUSTER_BASE_DOMAIN_MAP
+for _, cfg in CLUSTER_BASE_DOMAIN_MAP.items():
+    if 'domain' not in cfg:
+        raise ValueError("cluster domain config should contain `domain` field")
+    if 'tls_secret' not in cfg:
+        raise ValueError("cluster domain config should contain `tls_secret` field")
 
 ##################################################
 # the config below must not use getenv

@@ -49,8 +49,7 @@ def validate_abs_path_list(lst):
 def validate_mountpoints(lst):
     hosts = set()
     for mp in lst:
-        parts = mp.split('/', 1)
-        host = parts[0]
+        host = mp['host']
         if host in hosts:
             raise ValidationError('{} duplicate domain.'.format(host))
         hosts.add(host)
@@ -82,6 +81,12 @@ def validate_secrets(dd):
         raise ValidationError("secrets must contain only one field named `envNameList`")
     if not isinstance(envNameList, list):
         raise ValidationError("envNameList must be a list")
+
+
+class Mountpoint(StrictSchema):
+    host = fields.Str(required=True)
+    path = fields.Str(missing="/")
+    tlsSecret = fields.Str()
 
 
 class ContainerPort(StrictSchema):
@@ -146,7 +151,7 @@ class ServicePort(StrictSchema):
 class ServiceSchema(StrictSchema):
     user = fields.Str(missing="root")
     labels = fields.List(fields.Str())
-    mountpoints = fields.List(fields.Str(), validate=validate_mountpoints, missing=[])
+    mountpoints = fields.List(fields.Nested(Mountpoint), validate=validate_mountpoints, missing=[])
     ports = fields.List(fields.Nested(ServicePort))
 
     replicas = fields.Int(missing=1)

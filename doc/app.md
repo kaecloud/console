@@ -6,7 +6,7 @@ appname: {APP_NAME}                  # global unique name
 type: worker                         # web, worker and job are allowed, default is worker
 
 builds:                             # spec for building image
-- name: {NAME}:                     # image name, if it equal appname, then tag must be ignored.
+- name: {NAME}:                     # image name, if it equals appname, then tag must be ignored.
   tag: {TAG}                        # image tag default is the release tag
   dockerfile: Dockerfile-alternate  # optional, default is {REPO}/Dockerfile
   target: {TARGET}                  # optional, for multi-stage build
@@ -18,8 +18,10 @@ service:
   labels:                   # labels of the container
     - proctype=router
   
-  mountpoints:             # 只支持 Type==web 的 app(默认已分配 ${appname}.${domain} 的域名)
-  - hello.k8s.gtapp.xyz    # 响应 a.external.domain1 这个外网域名 b/c 段 location 的请求
+  mountpoints:                 # setup domain for app
+  - host: hello.k8s.gtapp.xyz
+    path: /
+    tlsSecret: haha            # name of the secret which contains certification, ignore it if app needn't support https
   ports:                     # ports exposed in kubernetes service
   - port: 80           # service port (required)
     targetPort: 8080   # container port, equal to port if not specified

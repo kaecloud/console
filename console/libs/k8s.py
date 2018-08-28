@@ -12,10 +12,11 @@ from kubernetes.watch.watch import iter_resp_lines
 from kubernetes.client.rest import ApiException
 
 from console.config import (
-    HOST_VOLUMES_DIR, POD_LOG_DIR, BASE_DOMAIN, BASE_TLS_SECRET,
+    HOST_VOLUMES_DIR, POD_LOG_DIR, CLUSTER_BASE_DOMAIN_MAP,
     REGISTRY_AUTHS, DFS_VOLUME, DFS_MOUNT_DIR, JOBS_ROOT_DIR, JOBS_OUPUT_ROOT_DIR,
     INGRESS_ANNOTATIONS_PREFIX,
 )
+
 from .utils import parse_image_name, id_generator, make_canary_appname
 
 
@@ -63,8 +64,8 @@ class KubernetesApi(object):
             core_v1api = client.CoreV1Api()
             extensions_api = client.ExtensionsV1beta1Api()
             batch_api = client.BatchV1Api()
-            self.cluster_map['default'] = ClientApiBundle('default', core_v1api, extensions_api, batch_api)
-            self.default_cluster_name = "default"
+            self.cluster_map['incluster'] = ClientApiBundle('incluster', core_v1api, extensions_api, batch_api)
+            self.default_cluster_name = "incluster"
 
     def __getattr__(self, item):
         def wrapper(*args, **kwargs):
@@ -82,6 +83,10 @@ class KubernetesApi(object):
             if cluster is None:
                 raise Exception("cluster {} is not available".format(cluster_name))
             func = getattr(cluster, item)
+
+            # deploy_app needs cluster argument to create ingress dict
+            if item == "deploy_app":
+                kwargs['cluster'] = cluster_name
             return func(*args, **kwargs)
         return wrapper
 
@@ -248,22 +253,24 @@ class ClientApiBundle(object):
         deployment.spec.template.metadata.annotations['renew_id'] = id_generator(10)
         self.extensions_api.replace_namespaced_deployment(name=appname, namespace=namespace, body=deployment)
 
-    def deploy_app(self, spec, release_tag, namespace="default"):
-        deployments, services, ingress = self.create_resource_dict(spec, release_tag)
-        for d in deployments:
-            self.apply(d, namespace=namespace)
-        for s in services:
-            self.apply(s, namespace=namespace)
-        for i in ingress:
-            self.apply(i, namespace=namespace)
+    def deploy_app(self, spec, release_tag, cluster, namespace="default"):
+        ing = None
+        dp_annotations = {
+            'release_tag': release_tag,
+        }
+        dp = self._create_deployment_dict(spec, annotations=dp_annotations)
+        svc = self._create_service_dict(spec)
+
+        if spec.type == "web":
+            ing = self._create_ingress_dict(spec, cluster)
+        self.apply(dp, namespace=namespace)
+        self.apply(svc, namespace=namespace)
+        if ing is not None:
+            self.apply(ing, namespace=namespace)
 
     def deploy_app_canary(self, spec, release_tag, namespace="default"):
         """
         create Canary Deployment for specified app.
-        1. create a k8s Deployment named `<appname>-canary`
-        2. create a k8s Service named `<appname>-canary`
-        :param spec:
-        :return:
         """
         canary_appname = make_canary_appname(spec['appname'])
         spec_copy = copy.deepcopy(spec)
@@ -409,28 +416,6 @@ class ClientApiBundle(object):
                 return None
             else:
                 raise e
-
-    @classmethod
-    def create_resource_dict(cls, spec, release_tag):
-        deployments = []
-        services = []
-        ingress = []
-        apptype = spec.type
-
-        if apptype in ("web", "worker"):
-            dp_annotations = {
-                'release_tag': release_tag,
-            }
-            obj = cls._create_deployment_dict(spec, annotations=dp_annotations)
-            deployments.append(obj)
-
-            obj = cls._create_service_dict(spec)
-            services.append(obj)
-
-            if apptype == "web":
-                obj = cls._create_ingress_dict(spec)
-                ingress.append(obj)
-        return deployments, services, ingress
 
     @classmethod
     def _construct_pod_spec(cls, name, volumes_root, container_spec_list,
@@ -653,7 +638,7 @@ class ClientApiBundle(object):
         return obj
 
     @classmethod
-    def _create_ingress_dict(cls, spec):
+    def _create_ingress_dict(cls, spec, cluster):
         appname = spec.appname
         svc = spec.service
 
@@ -676,18 +661,35 @@ class ClientApiBundle(object):
                 ]
             }
         })
+
         # parse mountpoints' host and path
+        tls_list = []
         mp_cfg = {}
         for mp in svc.mountpoints:
-            parts = mp.split('/', 1)
-            host = parts[0]
-            path = '/'
-            if len(parts) == 2:
-                path = '/' + parts[1]
-            mp_cfg[host] = path
-        default_domain = appname + '.' + BASE_DOMAIN
-        if default_domain not in mp_cfg:
-            mp_cfg[default_domain] = '/'
+            mp_cfg[mp.host] = mp.path
+            if mp.tlsSecret:
+                ingress_tls = {
+                    "hosts": [
+                        mp.host,
+                    ],
+                    "secretName": mp.tlsSecret,
+                }
+                tls_list.append(ingress_tls)
+
+        cluster_domain_cfg = CLUSTER_BASE_DOMAIN_MAP.get(cluster, None)
+        if cluster_domain_cfg is not None:
+            default_domain = appname + '.' + cluster_domain_cfg['domain']
+            if default_domain not in mp_cfg:
+                mp_cfg[default_domain] = '/'
+
+            # setup tls
+            ingress_tls = {
+                "hosts": [
+                    default_domain,
+                ],
+                "secretName": cluster_domain_cfg['tls_secret'],
+            }
+            tls_list.append(ingress_tls)
 
         for host, path in mp_cfg.items():
             rule = {
@@ -706,14 +708,7 @@ class ClientApiBundle(object):
                 }
             }
             obj.spec.rules.append(rule)
-        # setup tls
-        ingress_tls = {
-            "hosts": [
-                default_domain,
-            ],
-            "secretName": BASE_TLS_SECRET,
-        }
-        obj.spec.tls.append(ingress_tls)
+        obj.spec.tls = tls_list
         return obj
 
     @classmethod

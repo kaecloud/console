@@ -675,6 +675,44 @@ def update_release_spec(args, appname, tag):
     return DEFAULT_RETURN_VALUE
 
 
+@bp.route('/<appname>/version/<tag>/spec')
+@user_require(False)
+def get_release_spec(appname, tag):
+    """
+    get release's spec
+    ---
+    parameters:
+      - name: appname
+        in: path
+        type: string
+        required: true
+      - name: tag
+        in: path
+        type: string
+        required: true
+    responses:
+      200:
+        description: single Release object
+        schema:
+          $ref: '#/definitions/Release'
+        examples:
+          application/json:
+            app_id: 10019
+            specs_text: xxxxz
+            image: registry.cn-hangzhou.aliyuncs.com/kae/hello:v0.0.1
+            id: 32
+            misc: '{"commit_message": null, "git": "git@gitlab.com:yuyang0/hello-world.git"}'
+            build_status: True
+            updated: 2018-05-24 03:17:15
+            created: 2018-05-24 10:00:25
+            tag: v0.0.1
+    """
+    release = _get_release(appname, tag)
+    return {
+        "spec": release.specs_text,
+    }
+
+
 @bp.route('/<appname>/oplogs')
 @user_require(False)
 def get_app_oplogs(appname):
