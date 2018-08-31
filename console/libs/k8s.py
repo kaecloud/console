@@ -20,6 +20,14 @@ from console.config import (
 from .utils import parse_image_name, id_generator, make_canary_appname
 
 
+class KubeError(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+
+    def __str__(self):
+        return self.msg
+
+
 class KubernetesApi(object):
     _INSTANCE = None
     ALL_CLUSTER = "__all_cluster__"
@@ -690,6 +698,10 @@ class ClientApiBundle(object):
                 "secretName": cluster_domain_cfg['tls_secret'],
             }
             tls_list.append(ingress_tls)
+
+        # empty mp_cfg will cause an empty rules in ingress object
+        if len(mp_cfg) == 0:
+            raise KubeError("web app(cluster: {}) should at least have one host, add a host to mountpoints or check cluster's defaut host".format(cluster))
 
         for host, path in mp_cfg.items():
             rule = {

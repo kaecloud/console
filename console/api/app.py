@@ -19,7 +19,7 @@ from console.libs.utils import logger, make_canary_appname
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
 from console.models import App, Release, SpecVersion, User, OPLog, OPType
 from console.models.specs import fix_app_spec, app_specs_schema
-from console.libs.k8s import kube_api
+from console.libs.k8s import kube_api, KubeError
 from console.libs.k8s import ApiException
 from console.config import DEFAULT_REGISTRY, DEFAULT_APP_NS
 from console.ext import rds
@@ -1261,6 +1261,8 @@ def deploy_app(args, appname):
 
         try:
             kube_api.deploy_app(specs, release.tag, cluster_name=cluster, namespace=ns)
+        except KubeError as e:
+            abort(403, "Deploy Error: {}".format(str(e)))
         except ApiException as e:
             abort(e.status, "Error when deploy app: {}".format(str(e)))
         except Exception as e:
@@ -1386,6 +1388,8 @@ def deploy_app_canary(args, appname):
 
         try:
             kube_api.deploy_app_canary(specs, release.tag, cluster_name=cluster, namespace=ns)
+        except KubeError as e:
+            abort(403, "Deploy Canary Error: {}".format(str(e)))
         except ApiException as e:
             abort(e.status, "Error when deploy app canary: {}".format(str(e)))
         except Exception as e:
