@@ -280,16 +280,14 @@ class ClientApiBundle(object):
         """
         create Canary Deployment for specified app.
         """
-        canary_appname = make_canary_appname(spec['appname'])
         spec_copy = copy.deepcopy(spec)
-        spec_copy['appname'] = canary_appname
 
         dp_annotations = {
             'spec': yaml.dump(spec_copy.to_dict()),
             'release_tag': release_tag,
         }
-        dp_dict = self._create_deployment_dict(spec_copy, annotations=dp_annotations)
-        svc_dict = self._create_service_dict(spec_copy)
+        dp_dict = self._create_deployment_dict(spec_copy, annotations=dp_annotations, canary=True)
+        svc_dict = self._create_service_dict(spec_copy, canary=True)
 
         self.apply(dp_dict, namespace=namespace)
         self.apply(svc_dict, namespace=namespace)
@@ -428,7 +426,10 @@ class ClientApiBundle(object):
     @classmethod
     def _construct_pod_spec(cls, name, volumes_root, container_spec_list,
                             restartPolicy='Always', initial_env=None,
-                            initial_vol_mounts=None, default_work_dir=None):
+                            initial_vol_mounts=None, default_work_dir=None, secret_name=None):
+        if secret_name is None:
+            secret_name=name
+
         pod_spec = Dict({
             'volumes': [],
         })
@@ -516,7 +517,7 @@ class ClientApiBundle(object):
                 cfg_vol = {
                     "name": "configmap-volume",
                     "configMap": {
-                        "name": name
+                        "name": secret_name
                     }
                 }
                 pod_spec.volumes.append(cfg_vol)
@@ -532,7 +533,7 @@ class ClientApiBundle(object):
                         "name": envname,
                         "valueFrom": {
                             "secretKeyRef": {
-                                "name": name,
+                                "name": secret_name,
                                 "key": envname,
                             }
                         }
@@ -546,8 +547,13 @@ class ClientApiBundle(object):
         return pod_spec
 
     @classmethod
-    def _create_deployment_dict(cls, spec, version=None, renew_id=None, annotations=None):
-        appname = spec.appname
+    def _create_deployment_dict(cls, spec, version=None, renew_id=None, annotations=None, canary=False):
+        # secret_name is the secret name and configmap name for this app
+        secret_name = spec.appname
+        if canary:
+            appname = make_canary_appname(spec['appname'])
+        else:
+            appname = spec.appname
         svc = spec.service
         app_dir = os.path.join(HOST_VOLUMES_DIR, appname)
         host_kae_log_dir = os.path.join(app_dir, POD_LOG_DIR[1:])
@@ -608,7 +614,7 @@ class ClientApiBundle(object):
             "name": "kae-log-volumes",
             "mountPath": POD_LOG_DIR,
         }
-        pod_spec = cls._construct_pod_spec(appname, app_dir, svc.containers, initial_vol_mounts=[log_mount])
+        pod_spec = cls._construct_pod_spec(appname, app_dir, svc.containers, initial_vol_mounts=[log_mount], secret_name=secret_name)
         pod_spec.volumes.append(
             {
                 "name": "kae-log-volumes",
@@ -622,8 +628,12 @@ class ClientApiBundle(object):
         return obj
 
     @classmethod
-    def _create_service_dict(cls, spec):
-        appname = spec.appname
+    def _create_service_dict(cls, spec, canary=False):
+        if canary:
+            appname = make_canary_appname(spec['appname'])
+        else:
+            appname = spec.appname
+
         svc = spec.service
         obj = {
             'apiVersion': 'v1',
