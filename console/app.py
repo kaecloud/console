@@ -237,7 +237,6 @@ def create_app():
         'title': 'KAE Console API',
         'uiversion': 3,
     }
-    swagger = Swagger(app, template=yaml.load(swagger_yaml_template))
 
     app.url_map.converters['date'] = DateConverter
     app.config.from_object('console.config')
@@ -258,6 +257,9 @@ def create_app():
     from console.admin import init_admin
     admin = Admin(app, name='KAE', template_mode='bootstrap3')
     init_admin(admin)
+
+    from console.libs.view import user_require
+    swagger = Swagger(app, decorators=[user_require(False), ], template=yaml.load(swagger_yaml_template))
 
     # if not DEBUG:
     #     sentry = Sentry(dsn=SENTRY_DSN)
