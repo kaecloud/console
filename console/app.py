@@ -4,6 +4,7 @@ import yaml
 import json
 import logging
 
+from raven.contrib.flask import Sentry
 from celery import Celery, Task
 from flask import jsonify, g, Flask, request
 # from flask_cors import CORS
@@ -261,9 +262,9 @@ def create_app():
     from console.libs.view import user_require
     swagger = Swagger(app, decorators=[user_require(False), ], template=yaml.load(swagger_yaml_template))
 
-    # if not DEBUG:
-    #     sentry = Sentry(dsn=SENTRY_DSN)
-    #     sentry.init_app(app)
+    if not DEBUG:
+        sentry = Sentry(dsn=SENTRY_DSN)
+        sentry.init_app(app)
 
     for bp_name in api_blueprints:
         bp = import_string('%s.api.%s:bp' % (__package__, bp_name))
