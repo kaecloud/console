@@ -36,6 +36,13 @@ spec:
           mountPath: /var/run/docker.sock
         - name: kae-console-secret-vol
           mountPath: /etc/k8s-secret-volume
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "750m"
       volumes:
       - name: docker-sock-volume
         hostPath:
