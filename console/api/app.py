@@ -13,11 +13,11 @@ from webargs.flaskparser import use_args
 from console.libs.validation import (
     RegisterSchema, UserSchema, RollbackSchema, SecretSchema, ConfigMapSchema,
     ScaleSchema, DeploySchema, ClusterArgSchema, ABTestingSchema,
-    ClusterCanarySchema, SpecsArgsSchema,
+    ClusterCanarySchema, SpecsArgsSchema, AppYamlArgsSchema,
 )
 from console.libs.utils import logger, make_canary_appname
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
-from console.models import App, Release, SpecVersion, User, OPLog, OPType
+from console.models import App, Release, SpecVersion, User, OPLog, OPType, AppYaml
 from console.models.specs import fix_app_spec, app_specs_schema
 from console.libs.k8s import kube_api, KubeError
 from console.libs.k8s import ApiException
@@ -914,6 +914,69 @@ def get_config_map(args, appname):
         abort(500, str(e))
 
 
+@bp.route('/<appname>/yaml')
+@user_require(False)
+def list_app_yaml(appname):
+    """
+    Create or Update app yaml
+    ---
+    """
+    app = get_app_raw(appname)
+    return AppYaml.get_by_app(app)
+
+
+@bp.route('/<appname>/yaml', methods=['POST'])
+@use_args(AppYamlArgsSchema())
+@user_require(False)
+def create_or_update_app_yaml(args, appname):
+    """
+    Create or Update app yaml
+    ---
+    """
+    name = args['name']
+    specs_text = args['specs_text']
+    comment = args.get('comment', '')
+
+    # check the format of specs
+    try:
+        yaml_dict = yaml.load(specs_text)
+    except yaml.YAMLError as e:
+        return abort(400, 'specs text is invalid yaml {}'.format(str(e)))
+    try:
+        specs = app_specs_schema.load(yaml_dict).data
+        # at this place, we just use fix_app_spec to check if the default values in spec are correct
+        # we don't change the spec text, because AppYaml is independent with any release.
+        fix_app_spec(specs, appname, 'v0.0.1')
+    except ValidationError as e:
+        return abort(400, 'specs text is invalid {}'.format(str(e)))
+
+    # check if the user can access the App
+    app = get_app_raw(appname)
+    app_yaml = AppYaml.get_by_app_and_name(app, name)
+    if not app_yaml:
+        AppYaml.create(name, app, specs_text, comment)
+    else:
+        if (not comment) and app_yaml.comment:
+            comment = app_yaml.comment
+        app_yaml.update(specs_text=specs_text, comment=comment)
+    return DEFAULT_RETURN_VALUE
+
+
+@bp.route('/<appname>/name/<name>/yaml', methods=['DELETE'])
+@user_require(False)
+def delete_app_yaml(appname, name):
+    """
+    Delete app yaml
+    ---
+    """
+    app = get_app_raw(appname)
+    app_yaml = AppYaml.get_by_app_and_name(app, name)
+    if not app_yaml:
+        abort(404, "AppYaml(app: {}, name:{}) not found".format(appname, name))
+    app_yaml.delete()
+    return DEFAULT_RETURN_VALUE
+
+
 @bp.route('/register', methods=['POST'])
 @use_args(RegisterSchema())
 @user_require(False)
@@ -978,10 +1041,10 @@ def register_release(args):
         specs = app_specs_schema.load(yaml_dict).data
         fix_app_spec(specs, appname, tag)
     except ValidationError as e:
-        return abort(400, 'specs text is invalid {}'.format(str(e)))
+        return abort(400, 'specs text is invalid: {}'.format(str(e)))
 
     # because some defaults may have added to specs, so we need update specs_text
-    specs_text = yaml.dump(specs.to_dict())
+    new_specs_text = yaml.dump(specs.to_dict())
 
     app = App.get_or_create(appname, git, specs.type)
     if not app:
@@ -997,6 +1060,11 @@ def register_release(args):
         # app.delete()
         abort(500, "internal server error")
 
+    # create default AppYaml if it doesn't exist
+    app_yaml = AppYaml.get_by_app_and_name(app, 'default')
+    if not app_yaml:
+        AppYaml.create(name='default', app=app, specs_text=specs_text, comment='create by release {}'.format(tag))
+
     default_release_image = None
     build_status = False if specs.builds else True
     for build in specs.builds:
@@ -1006,7 +1074,7 @@ def register_release(args):
     release = Release.get_by_app_and_tag(appname, tag)
     if not release:
         try:
-            release = Release.create(app, tag, specs_text, image=default_release_image,
+            release = Release.create(app, tag, new_specs_text, image=default_release_image,
                                      build_status=build_status,
                                      branch=branch, author=author, commit_message=commit_message)
         except IntegrityError as e:
@@ -1015,7 +1083,7 @@ def register_release(args):
             return abort(400, str(e))
     else:
         if force is True:
-            release.update(specs_text, image=default_release_image,
+            release.update(new_specs_text, image=default_release_image,
                            build_status=build_status,
                            branch=branch, author=author, commit_message=commit_message)
         else:
@@ -1186,7 +1254,7 @@ def deploy_app(args, appname):
     """
     cluster = args['cluster']
     tag = args["tag"]
-    specs_text = args.get('specs_text', None)
+    app_yaml_name = args['app_yaml_name']
     ns = DEFAULT_APP_NS
 
     app = App.get_by_name(appname)
@@ -1195,6 +1263,10 @@ def deploy_app(args, appname):
 
     if not g.user.granted_to_app(app):
         abort(403, 'You\'re not granted to this app, ask administrators for permission')
+
+    app_yaml = AppYaml.get_by_app_and_name(app, app_yaml_name)
+    if not app_yaml:
+        abort(404, "AppYaml {} doesn't exist.".format(app_yaml_name))
 
     with lock_app(appname):
 
@@ -1212,33 +1284,25 @@ def deploy_app(args, appname):
         except Exception as e:
             abort(500, "error when get deployment {}".format(str(e)))
 
-        if specs_text:
-            try:
-                yaml_dict = yaml.load(release.specs_text)
-            except yaml.YAMLError as e:
-                abort(403, 'specs text is invalid yaml {}'.format(str(e)))
-            try:
-                specs = app_specs_schema.load(yaml_dict).data
-                fix_app_spec(specs, appname, tag)
-            except ValidationError as e:
-                abort(403, 'specs text is invalid {}'.format(str(e)))
-        else:
-            specs = release.specs
-            # update specs from release
-            replicas = args.get('replicas')
-            cpus = args.get('cpus')
-            memories = args.get('memories')
+        specs = app_yaml.specs
+        fix_app_spec(specs, appname, tag)
 
-            # sometimes user may forget fo update replicas value after a scale operation,
-            # so if the spec is from the release, we never scale down the deployments
-            if not replicas:
-                replicas = specs.service.replicas
-                if k8s_deployment is not None and k8s_deployment.spec.replicas > replicas:
-                    replicas = k8s_deployment.spec.replicas
-            try:
-                specs = _update_specs(specs, cpus, memories, replicas)
-            except IndexError:
-                abort(403, "cpus or memories' index is larger than the number of containers")
+        # update specs from release
+        replicas = args.get('replicas')
+        cpus = args.get('cpus')
+        memories = args.get('memories')
+
+        # sometimes user may forget fo update replicas value after a scale operation,
+        # so if the spec is from the release, we never scale down the deployments
+        if not replicas:
+            replicas = specs.service.replicas
+            if k8s_deployment is not None and k8s_deployment.spec.replicas > replicas:
+                replicas = k8s_deployment.spec.replicas
+        try:
+            specs = _update_specs(specs, cpus, memories, replicas)
+        except IndexError:
+            abort(403, "cpus or memories' index is larger than the number of containers")
+
         if release.build_status is False:
             abort(403, "please build release first")
         # check secret and configmap
@@ -1329,7 +1393,7 @@ def deploy_app_canary(args, appname):
     """
     cluster = args['cluster']
     tag = args["tag"]
-    specs_text = args.get('specs_text', None)
+    app_yaml_name = args['app_yaml_name']
 
     ns = DEFAULT_APP_NS
 
@@ -1344,6 +1408,10 @@ def deploy_app_canary(args, appname):
         if app.type != "web":
             abort(403, "Only web app can deploy canary release")
 
+        app_yaml = AppYaml.get_by_app_and_name(app, app_yaml_name)
+        if not app_yaml:
+            abort(404, "AppYaml {} doesn't exist.".format(app_yaml_name))
+
         release = app.get_release_by_tag(tag)
         if not release:
             abort(404, 'release {} not found.'.format(tag))
@@ -1351,29 +1419,20 @@ def deploy_app_canary(args, appname):
         if release.build_status is False:
             abort(403, "please build release first")
 
-        if specs_text:
-            try:
-                yaml_dict = yaml.load(release.specs_text)
-            except yaml.YAMLError as e:
-                abort(403, 'specs text is invalid yaml {}'.format(str(e)))
-            try:
-                specs = app_specs_schema.load(yaml_dict).data
-                fix_app_spec(specs, appname, tag)
-            except ValidationError as e:
-                abort(403, 'specs text is invalid {}'.format(str(e)))
-        else:
-            specs = release.specs
-            # update specs from release
-            replicas = args.get('replicas')
-            cpus = args.get('cpus')
-            memories = args.get('memories')
+        specs = app_yaml.specs
+        fix_app_spec(specs, appname, tag)
+        # update specs from release
+        replicas = args.get('replicas')
+        cpus = args.get('cpus')
+        memories = args.get('memories')
 
-            if not replicas:
-                replicas = specs.service.replicas
-            try:
-                specs = _update_specs(specs, cpus, memories, replicas)
-            except IndexError:
-                abort(403, "cpus or memories' index is larger than the number of containers")
+        if not replicas:
+            replicas = specs.service.replicas
+        try:
+            specs = _update_specs(specs, cpus, memories, replicas)
+        except IndexError:
+            abort(403, "cpus or memories' index is larger than the number of containers")
+
         # check secret and configmap
         if specs_contains_secrets(specs):
             try:

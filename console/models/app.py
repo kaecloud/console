@@ -240,6 +240,62 @@ class Release(BaseModelMixin):
             db.session.rollback()
 
 
+class AppYaml(BaseModelMixin):
+    __table_args__ = (
+        db.UniqueConstraint('app_id', 'name'),
+    )
+    # git tag
+    name = db.Column(db.CHAR(64), nullable=False, index=True)
+    app_id = db.Column(db.Integer, nullable=False)
+    specs_text = db.Column(db.Text)
+    comment = db.Column(db.Text)
+
+    def __str__(self):
+        return '<{r.appname}:{r.name}>'.format(r=self)
+
+    @classmethod
+    def create(cls, name, app, specs_text, comment=''):
+        """app must be an App instance"""
+        appname = app.name
+
+        # check the format of specs text(ignore the result)
+        app_specs_schema.load(yaml.load(specs_text))
+
+        try:
+            new_yaml = cls(name=name, app_id=app.id, specs_text=specs_text, comment=comment)
+            db.session.add(new_yaml)
+            db.session.commit()
+        except IntegrityError:
+            logger.warn('Fail to create AppYaml %s %s, duplicate', appname, name)
+            db.session.rollback()
+            raise
+
+        return new_yaml
+
+    @classmethod
+    def get_by_app_and_name(cls, app, name):
+        return cls.query.filter_by(app_id=app.id, name=name).first()
+
+    @classmethod
+    def get_by_app(cls, app, start=0, limit=10):
+        q = cls.query.filter_by(app_id=app.id).order_by(cls.id.desc())
+        return q[start:start + limit]
+
+    @property
+    def app(self):
+        return App.get(self.app_id)
+
+    @property
+    def appname(self):
+        return self.app.name
+
+    @cached_property
+    def specs(self):
+        dic = yaml.load(self.specs_text)
+        unmarshal_result = app_specs_schema.load(dic)
+        return unmarshal_result.data
+
+
 class SpecVersion(BaseModelMixin):
     # git tag
     tag = db.Column(db.CHAR(64), nullable=False, index=True)

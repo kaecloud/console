@@ -206,7 +206,7 @@ class UserSchema(StrictSchema):
 class DeploySchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
     tag = fields.Str(required=True)
-    specs_text = fields.Str()
+    app_yaml_name = fields.Str(missing='default')
     cpus = fields.Dict(validate=validate_cpu_dict)
     memories = fields.Dict(validate=validate_memory_dict)
     replicas = fields.Int()
@@ -266,6 +266,12 @@ class ConfigMapSchema(StrictSchema):
 class RollbackSchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
     revision = fields.Int(missing=0)
+
+
+class AppYamlArgsSchema(StrictSchema):
+    name = fields.Str(required=True)
+    specs_text = fields.Str(required=True)
+    comment = fields.Str()
 
 
 class JobArgsSchema(StrictSchema):

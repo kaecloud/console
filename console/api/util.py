@@ -30,6 +30,7 @@ def handle_k8s_err(msg_prefix, clean_func=None):
         abort(500, msg_prefix)
 
 
+# TODO
 class CodeFetcher(object):
     @classmethod
     def _run_cmd(cls, args):
