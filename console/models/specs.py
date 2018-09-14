@@ -75,14 +75,6 @@ def validate_percentage_or_int(ss):
         raise ValidationError("invalid percentage or integer")
 
 
-def validate_secrets(dd):
-    envNameList = dd.get('envNameList', None)
-    if len(dd) != 1 or envNameList is None:
-        raise ValidationError("secrets must contain only one field named `envNameList`")
-    if not isinstance(envNameList, list):
-        raise ValidationError("envNameList must be a list")
-
-
 class Mountpoint(StrictSchema):
     host = fields.Str(required=True)
     path = fields.Str(missing="/")
@@ -116,6 +108,33 @@ class UpdateStrategy(StrictSchema):
     rollingUpdate = fields.Nested(RollingUpdate)
 
 
+class ConfigMapSchema(StrictSchema):
+    dir = fields.Str(required=True)
+    key = fields.Str(required=True)
+    filename = fields.Str()
+
+    @post_load
+    def add_defaults(self, data):
+        if 'filename' not in data:
+            data['filename'] = data['key']
+        if not os.path.isabs(data['dir']):
+            raise ValidationError("{} is not a absolute path".format(data['dir']))
+        return data
+
+
+class SecretSchema(StrictSchema):
+    envNameList = fields.List(fields.Str(), required=True)
+    keyList = fields.List(fields.Str())
+
+    @post_load
+    def add_defaults(self, data):
+        if 'keyList' not in data:
+            data['keyList'] = data['envNameList']
+        if len(data['keyList']) != len(data['envNameList']):
+            raise ValidationError("the length of envNameList must equal to keyList")
+        return data
+
+
 build_schema = BuildSchema()
 
 
@@ -138,8 +157,8 @@ class ContainerSpec(StrictSchema):
 
     volumes = fields.List(fields.Str(), validate=validate_abs_path_list)
     dfsVolumes = fields.List(fields.Str(), validate=validate_abs_path_list)
-    configDir = fields.Str()
-    secrets = fields.Dict(validate=validate_secrets)
+    configmap = fields.Nested(ConfigMapSchema)
+    secrets = fields.Nested(SecretSchema)
 
 
 class ServicePort(StrictSchema):

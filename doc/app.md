@@ -67,6 +67,11 @@ service:
     dfsVolumes:
       - /data
     secrets:
-      envNameList: []      # every item in envNameList should exist in correspond secret
-    configDir: xxxxx       # the config map's mount path in container
+      envNameList: []      # required, environment variable list
+      keyList: [xxx]       # optional, if not specified, then `envNameList` is used,
+                           #           every item in keyList should exist in correspond secret
+    configmap:
+      dir: xxxx            # required, the config map's mount path in container
+      key: xxxx            # required, the key in configmap
+      filename: xxx        # optional, default is the value of `key`
 ```

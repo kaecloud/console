@@ -38,7 +38,7 @@ DEFAULT_NS = getenv('DEFAULT_NS', default='kae')
 DEFAULT_APP_NS = getenv('DEFAULT_APP_NS', default='kae-app')
 DEFAULT_JOB_NS = getenv('DEFAULT_JOB_NS', default='kae-job')
 
-SQLALCHEMY_DATABASE_URI = getenv('SQLALCHEMY_DATABASE_URI')
+SQLALCHEMY_DATABASE_URI = getenv('SQLALCHEMY_DATABASE_URI', default="'mysql+pymysql://kae:123@127.0.0.1:3306/console?charset=utf8mb4'")
 SQLALCHEMY_TRACK_MODIFICATIONS = getenv('SQLALCHEMY_TRACK_MODIFICATIONS', default=True, type=bool)
 SQLALCHEMY_POOL_SIZE = getenv('SQLALCHEMY_POOL_SIZE', default=30)
 SQLALCHEMY_MAX_OVERFLOW = getenv('SQLALCHEMY_MAX_OVERFLOW', default=10)

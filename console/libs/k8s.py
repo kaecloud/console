@@ -151,14 +151,27 @@ class ClientApiBundle(object):
         w = watch.Watch()
         return w.stream(self.core_v1api.list_pod_for_all_namespaces, label_selector=label_selector, **kwargs)
 
-    def create_or_update_config_map(self, appname, cfg, config_name="config", namespace="default"):
-        cmap = client.V1ConfigMap()
-        cmap.metadata = client.V1ObjectMeta(name=appname)
-        cmap.data = {config_name: cfg}
+    def create_or_update_config_map(self, appname, cm_data, replace=True, namespace="default"):
+        """
+        create or update configmap for specfied app
+        :param appname:
+        :param cm_data: configmap data dict
+        :param replace: if it set to True, the existing configmap data is replaced by cm_data, otherwise cm_data is merged to the exising data
+        :param namespace:
+        :return:
+        """
         try:
+            cmap = self.core_v1api.read_namespaced_config_map(name=appname, namespace=namespace)
+            if replace:
+                cmap.data = cm_data
+            else:
+                cmap.data.update(cm_data)
             self.core_v1api.replace_namespaced_config_map(name=appname, namespace=namespace, body=cmap)
         except ApiException as e:
             if e.status == 404:
+                cmap = client.V1ConfigMap()
+                cmap.metadata = client.V1ObjectMeta(name=appname)
+                cmap.data = cm_data
                 self.core_v1api.create_namespaced_config_map(namespace=namespace, body=cmap)
             else:
                 raise e
@@ -170,7 +183,15 @@ class ClientApiBundle(object):
     def delete_config_map(self, appname, namespace="default"):
         self.core_v1api.delete_namespaced_config_map(name=appname, namespace=namespace, body=client.V1DeleteOptions())
 
-    def create_or_update_secret(self, appname, secrets, namespace="default"):
+    def create_or_update_secret(self, appname, secrets, replace=True, namespace="default"):
+        """
+        create or update secret for specified app
+        :param appname:
+        :param secrets: new secret data dict
+        :param replace: replace the existing secret data or just merge new data to the existing secret data
+        :param namespace:
+        :return:
+        """
         base64_secrets = {}
         for k, v in secrets.items():
             b = v
@@ -179,14 +200,19 @@ class ClientApiBundle(object):
             if not isinstance(b, bytes):
                 raise ValueError("secret value should be string or dict")
             base64_secrets[k] = base64.b64encode(b).decode('utf8')
-        sec = client.V1Secret()
-        sec.metadata = client.V1ObjectMeta(name=appname)
-        sec.type = "Opaque"
-        sec.data = base64_secrets
         try:
+            sec = self.core_v1api.read_namespaced_secret(name=appname, namespace=namespace)
+            if replace:
+                sec.data = base64_secrets
+            else:
+                sec.data.update(base64_secrets)
             self.core_v1api.replace_namespaced_secret(name=appname, namespace=namespace, body=sec)
         except ApiException as e:
             if e.status == 404:
+                sec = client.V1Secret()
+                sec.metadata = client.V1ObjectMeta(name=appname)
+                sec.type = "Opaque"
+                sec.data = base64_secrets
                 self.core_v1api.create_namespaced_secret(namespace=namespace, body=sec)
             else:
                 raise e
@@ -513,28 +539,34 @@ class ClientApiBundle(object):
                     }
                     c.volumeMounts.append(volume_mount)
 
-            if container_spec.configDir:
+            if container_spec.configmap:
                 cfg_vol = {
                     "name": "configmap-volume",
                     "configMap": {
-                        "name": secret_name
+                        "name": secret_name,
+                        "items": [
+                            {
+                                "key": container_spec.configmap.key,
+                                "path": container_spec.configmap.filename,
+                            }
+                        ]
                     }
                 }
                 pod_spec.volumes.append(cfg_vol)
                 volume_mount = {
                     "name": "configmap-volume",
-                    "mountPath": container_spec.configDir,
+                    "mountPath": container_spec.configmap.dir,
                 }
                 c.volumeMounts.append(volume_mount)
 
             if container_spec.secrets:
-                for envname in container_spec.secrets.envNameList:
+                for envname, key in zip(container_spec.secrets.envNameList, container_spec.secrets.keyList):
                     secret_ref = {
                         "name": envname,
                         "valueFrom": {
                             "secretKeyRef": {
                                 "name": secret_name,
-                                "key": envname,
+                                "key": key,
                             }
                         }
                     }

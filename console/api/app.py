@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from webargs.flaskparser import use_args
 
 from console.libs.validation import (
-    RegisterSchema, UserSchema, RollbackSchema, SecretSchema, ConfigMapSchema,
+    RegisterSchema, UserSchema, RollbackSchema, SecretArgsSchema, ConfigMapArgsSchema,
     ScaleSchema, DeploySchema, ClusterArgSchema, ABTestingSchema,
     ClusterCanarySchema, SpecsArgsSchema, AppYamlArgsSchema,
 )
@@ -37,18 +37,20 @@ def lock_app(appname):
         yield
 
 
-def specs_contains_secrets(specs):
+def get_spec_secret_keys(specs):
+    keys = []
     for c in specs.service.containers:
         if c.secrets:
-            return True
-    return False
+            keys.extend(c.secrets.keyList)
+    return keys
 
 
-def specs_contains_configmap(specs):
+def get_spec_configmap_keys(specs):
+    keys = []
     for c in specs.service.containers:
-        if c.configDir:
-            return True
-    return False
+        if c.configmap:
+            keys.append(c.configmap.key)
+    return keys
 
 
 def _update_specs(specs, cpus, memories, replicas):
@@ -745,7 +747,7 @@ def get_app_oplogs(appname):
 
 
 @bp.route('/<appname>/secret', methods=['POST'])
-@use_args(SecretSchema())
+@use_args(SecretArgsSchema())
 @user_require(False)
 def create_secret(args, appname):
     """
@@ -778,11 +780,12 @@ def create_secret(args, appname):
     """
     cluster = args['cluster']
     data = args['data']
+    replace = args['replace']
     ns = DEFAULT_APP_NS
     # check if the user can access the App
     get_app_raw(appname)
     try:
-        kube_api.create_or_update_secret(appname, data, cluster_name=cluster, namespace=ns)
+        kube_api.create_or_update_secret(appname, data, replace=replace, cluster_name=cluster, namespace=ns)
     except ApiException as e:
         abort(e.status, str(e))
     except Exception as e:
@@ -828,7 +831,7 @@ def get_secret(args, appname):
 
 
 @bp.route('/<appname>/configmap', methods=['POST'])
-@use_args(ConfigMapSchema())
+@use_args(ConfigMapArgsSchema())
 @user_require(False)
 def create_config_map(args, appname):
     """
@@ -854,13 +857,13 @@ def create_config_map(args, appname):
             error: null
     """
     cluster = args['cluster']
-    data = args['data']
-    config_name = args['config_name']
+    cm_data = args['data']
+    replace = args['replace']
     ns = DEFAULT_APP_NS
     # check if the user can access the App
     get_app_raw(appname)
     try:
-        kube_api.create_or_update_config_map(appname, data, config_name=config_name, cluster_name=cluster, namespace=ns)
+        kube_api.create_or_update_config_map(appname, cm_data, replace=replace, cluster_name=cluster, namespace=ns)
     except ApiException as e:
         abort(e.status, str(e))
     except Exception as e:
@@ -899,15 +902,7 @@ def get_config_map(args, appname):
     get_app_raw(appname)
     try:
         raw_data = kube_api.get_config_map(appname, cluster_name=cluster, namespace=ns)
-        if len(raw_data) != 1:
-            logger.error("configmap must contain only one item, this maybe caused by bug, or the configmap has been changed by external operation")
-            abort(500, "internal error")
-        config_name = list(raw_data.keys())[0]
-        data = raw_data[config_name]
-        return {
-            "config_name": config_name,
-            "data": data,
-        }
+        return raw_data
     except ApiException as e:
         abort(e.status, str(e))
     except Exception as e:
@@ -1306,16 +1301,31 @@ def deploy_app(args, appname):
         if release.build_status is False:
             abort(403, "please build release first")
         # check secret and configmap
-        if specs_contains_secrets(specs):
+        secret_keys = get_spec_secret_keys(specs)
+        if len(secret_keys) > 0:
             try:
-                kube_api.get_secret(appname, cluster_name=cluster, namespace=ns)
-            except Exception:
-                abort(403, "can't get secret, pls ensure you've added secret for {}".format(appname))
-        if specs_contains_configmap(specs):
+                secret_data = kube_api.get_secret(appname, cluster_name=cluster, namespace=ns)
+            except ApiException as e:
+                if e.status == 404:
+                    abort(403, "please set secret for app {}".format(appname))
+                else:
+                    raise e
+            diff_keys = set(secret_keys) - set(secret_data.keys())
+            if len(diff_keys) > 0:
+                abort(403, "%s are not in secret, please set it first" % str(diff_keys))
+
+        configmap_keys = get_spec_configmap_keys(specs)
+        if len(configmap_keys) > 0:
             try:
-                kube_api.get_config_map(appname, cluster_name=cluster, namespace=ns)
-            except Exception:
-                abort(403, "can't get config, pls ensure you've added config for {}".format(appname))
+                cm_data = kube_api.get_config_map(appname, cluster_name=cluster, namespace=ns)
+            except ApiException as e:
+                if e.status == 404:
+                    abort(403, "please set configmap for app {}".format(appname))
+                else:
+                    raise e
+            diff_keys = set(configmap_keys) - set(cm_data.keys())
+            if len(diff_keys) > 0:
+                abort(403, "%s are not in configmap" % str(diff_keys))
 
         try:
             SpecVersion.create(app, tag, specs)
@@ -1434,17 +1444,31 @@ def deploy_app_canary(args, appname):
             abort(403, "cpus or memories' index is larger than the number of containers")
 
         # check secret and configmap
-        if specs_contains_secrets(specs):
+        secret_keys = get_spec_secret_keys(specs)
+        if len(secret_keys) > 0:
             try:
-                kube_api.get_secret(appname, cluster_name=cluster, namespace=ns)
-            except Exception:
-                abort(403, "can't get secret, pls ensure you've added secret for {}".format(appname))
-        if specs_contains_configmap(specs):
-            try:
-                kube_api.get_config_map(appname, cluster_name=cluster, namespace=ns)
-            except Exception:
-                abort(403, "can't get config, pls ensure you've added config for {}".format(appname))
+                secret_data = kube_api.get_secret(appname, cluster_name=cluster, namespace=ns)
+            except ApiException as e:
+                if e.status == 404:
+                    abort(403, "please set secret for app {}".format(appname))
+                else:
+                    raise e
+            diff_keys = set(secret_keys) - set(secret_data.keys())
+            if len(diff_keys) > 0:
+                abort(403, "%s are not in secret, please set it first" % str(diff_keys))
 
+        configmap_keys = get_spec_configmap_keys(specs)
+        if len(configmap_keys) > 0:
+            try:
+                cm_data = kube_api.get_config_map(appname, cluster_name=cluster, namespace=ns)
+            except ApiException as e:
+                if e.status == 404:
+                    abort(403, "please set configmap for app {}".format(appname))
+                else:
+                    raise e
+            diff_keys = set(configmap_keys) - set(cm_data.keys())
+            if len(diff_keys) > 0:
+                abort(403, "%s are not in configmap" % str(diff_keys))
         try:
             kube_api.deploy_app_canary(specs, release.tag, cluster_name=cluster, namespace=ns)
         except KubeError as e:

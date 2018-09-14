@@ -27,16 +27,16 @@ def validate_user_id(id_):
         raise ValidationError('User {} not found, needs to login first'.format(id_))
 
 
-def validate_secret_data(dd):
+def validate_secret_configmap_data(dd):
     for k, v in dd.items():
         if not k:
             raise ValidationError("key must not be empty")
         if not v:
             raise ValidationError("value must not be empty")
         if not isinstance(v, (bytes, str)):
-            raise ValidationError("value of secret should be string or bytes")
+            raise ValidationError("value of secret or configmap should be string or bytes")
         if not isinstance(k, (bytes, str)):
-            raise ValidationError("key of secret should be string or bytes")
+            raise ValidationError("key of secret or configmap should be string or bytes")
 
 
 def validate_abtesting_rules(dd):
@@ -252,15 +252,13 @@ class ABTestingSchema(StrictSchema):
     rules = fields.Dict(required=True, validate=validate_abtesting_rules)
 
 
-class SecretSchema(StrictSchema):
+class SecretArgsSchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
-    data = fields.Dict(required=True, validate=validate_secret_data)
+    replace = fields.Bool(missing=False)
+    data = fields.Dict(required=True, validate=validate_secret_configmap_data)
 
 
-class ConfigMapSchema(StrictSchema):
-    cluster = fields.Str(required=True, validate=validate_cluster_name)
-    data = fields.Str(required=True)
-    config_name = fields.Str(missing='config')
+ConfigMapArgsSchema = SecretArgsSchema
 
 
 class RollbackSchema(StrictSchema):
@@ -308,5 +306,5 @@ register_schema = RegisterSchema()
 deploy_schema = DeploySchema()
 scale_schema = ScaleSchema()
 build_args_schema = BuildArgsSchema()
-secret_schema = SecretSchema()
-config_map_schema = ConfigMapSchema()
+secret_schema = SecretArgsSchema()
+config_map_schema = ConfigMapArgsSchema()
