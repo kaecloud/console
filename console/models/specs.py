@@ -169,6 +169,7 @@ class ServicePort(StrictSchema):
 
 class ServiceSchema(StrictSchema):
     user = fields.Str(missing="root")
+    registry = fields.Str()
     labels = fields.List(fields.Str())
     mountpoints = fields.List(fields.Nested(Mountpoint), validate=validate_mountpoints, missing=[])
     ports = fields.List(fields.Nested(ServicePort))
@@ -232,6 +233,11 @@ def fix_app_spec(spec, appname, tag):
     :return:
     """
     spec['appname'] = appname
+    svc = spec["service"]
+
+    registry = svc.get('registry', None)
+    if registry is None:
+        registry = DEFAULT_REGISTRY
 
     default_release_image = None
     for build in spec["builds"]:
@@ -239,7 +245,7 @@ def fix_app_spec(spec, appname, tag):
         if name == appname:
             # overwrite the build tag to release tag
             build['tag'] = tag
-            default_release_image = "{}/{}:{}".format(DEFAULT_REGISTRY.rstrip('/'), appname, tag)
+            default_release_image = "{}/{}:{}".format(registry.rstrip('/'), appname, tag)
 
     containers = spec["service"]["containers"]
     for container in containers:

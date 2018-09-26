@@ -15,6 +15,7 @@ builds:                             # spec for building image
 
 service:
   user: root                # default: root
+  registry: xxxx            # specify diffirent registry name
   labels:                   # labels of the container
     - proctype=router
   
