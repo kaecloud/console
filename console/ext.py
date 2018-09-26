@@ -32,20 +32,22 @@ class PrivateTokenClient(object):
         url = urljoin(self.api_base_url, 'user')
         headers = {
             'Private-Token': token,
+            'Connection': 'close',
         }
-        r = requests.get(url, headers=headers)
-        r.raise_for_status()
-        data = r.json()
-        params = {
-            'sub': str(data['id']),
-            'name': data['name'],
-            'email': data.get('email'),
-            'preferred_username': data['username'],
-            'profile': data['web_url'],
-            'picture': data['avatar_url'],
-            'website': data.get('website_url'),
-        }
-        return UserInfo(params)
+
+        with requests.get(url, headers=headers) as r:
+            r.raise_for_status()
+            data = r.json()
+            params = {
+                'sub': str(data['id']),
+                'name': data['name'],
+                'email': data.get('email'),
+                'preferred_username': data['username'],
+                'profile': data['web_url'],
+                'picture': data['avatar_url'],
+                'website': data.get('website_url'),
+            }
+            return UserInfo(params)
 
 
 def fetch_token(name):

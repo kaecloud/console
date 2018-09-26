@@ -72,12 +72,15 @@ def bearychat_sendmsg(to, content):
         "text": content,
         "channel": to,
     }
+    headers = {
+        'Connection': 'close',
+    }
     try:
-        res = requests.post(BOT_WEBHOOK_URL, json=data)
+        with requests.post(BOT_WEBHOOK_URL, headers=headers, json=data) as res:
+            return res
     except:
         logger.exception('Send bearychat msg failed')
         return
-    return res
 
 
 def make_shell_env(env_content):
