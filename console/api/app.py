@@ -1288,7 +1288,7 @@ def deploy_app(args, appname):
         memories = args.get('memories')
 
         # sometimes user may forget fo update replicas value after a scale operation,
-        # so if the spec is from the release, we never scale down the deployments
+        # so we never scale down the deployments
         if not replicas:
             replicas = specs.service.replicas
             if k8s_deployment is not None and k8s_deployment.spec.replicas > replicas:
