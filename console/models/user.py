@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 import json
-import requests
 from authlib.client.errors import OAuthException
 from flask import abort, session, request
 from sqlalchemy.exc import IntegrityError
@@ -28,8 +27,6 @@ def get_current_user():
             return None
         try:
             authlib_user = private_token_client.profile(private_token)
-        except requests.HTTPError as e:
-            return abort(e.response.status_code, 'fetch {} profile failed, please check your api token: {}'.format(OAUTH_APP_NAME, e))
         except Exception as e:
             logger.exception('fetch {} profile failed: {}'.format(OAUTH_APP_NAME, e))
             return abort(500, 'fetch {} profile failed: {}'.format(OAUTH_APP_NAME, e))

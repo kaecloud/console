@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
+import json
+import urllib.request
 from urllib.parse import urljoin
-import requests
 from loginpass import create_gitlab_backend, register_to
 
 from authlib.flask.client import OAuth, RemoteApp
@@ -34,20 +35,22 @@ class PrivateTokenClient(object):
             'Private-Token': token,
             'Connection': 'close',
         }
-
-        with requests.get(url, headers=headers) as r:
-            r.raise_for_status()
-            data = r.json()
-            params = {
-                'sub': str(data['id']),
-                'name': data['name'],
-                'email': data.get('email'),
-                'preferred_username': data['username'],
-                'profile': data['web_url'],
-                'picture': data['avatar_url'],
-                'website': data.get('website_url'),
-            }
-            return UserInfo(params)
+        req = urllib.request.Request(url=url, headers=headers, method='GET')
+        res = urllib.request.urlopen(req)
+        res_body = res.read()
+        data = json.loads(res_body.decode("utf-8"))
+        if res.getcode() < 200 or res.getcode() >= 300:
+            raise Exception("HTTP Get Error: <url: {}, status: {}, reason: {}>".format(url, res.getcode(), res.reason))
+        params = {
+            'sub': str(data['id']),
+            'name': data['name'],
+            'email': data.get('email'),
+            'preferred_username': data['username'],
+            'profile': data['web_url'],
+            'picture': data['avatar_url'],
+            'website': data.get('website_url'),
+        }
+        return UserInfo(params)
 
 
 def fetch_token(name):

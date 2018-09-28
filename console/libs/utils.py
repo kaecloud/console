@@ -7,9 +7,9 @@ import string
 import random
 import shutil
 import logging
+import urllib.request
 from subprocess import Popen, PIPE, STDOUT, run, CalledProcessError
 
-import requests
 import docker
 from flask import session
 from functools import wraps
@@ -60,6 +60,29 @@ def shorten_sentence(s, length=88):
     return s
 
 
+def send_post_json_request(url, dic, headers=None):
+    if headers is None:
+        headers = {}
+    req = urllib.request.Request(url, headers=headers, method="POST")
+    req.add_header('Content-Type', 'application/json')
+    data = json.dumps(dic)
+    data = data.encode("utf8")
+    response = urllib.request.urlopen(req, data)
+
+    data = json.loads(response.read().decode("utf8"))
+    return response.getcode(), data
+
+
+def send_get_json_request(url, headers=None):
+    if headers is None:
+        headers = {}
+    req = urllib.request.Request(url=url, headers=headers, method='GET')
+    res = urllib.request.urlopen(req)
+    res_body = res.read()
+    data = json.loads(res_body.decode("utf8"))
+    return res.getcode(), data
+
+
 def bearychat_sendmsg(to, content):
     if not all([to, content, BOT_WEBHOOK_URL]):
         return
@@ -76,8 +99,8 @@ def bearychat_sendmsg(to, content):
         'Connection': 'close',
     }
     try:
-        with requests.post(BOT_WEBHOOK_URL, headers=headers, json=data) as res:
-            return res
+        code, res = send_post_json_request(BOT_WEBHOOK_URL, data, headers)
+        return res
     except:
         logger.exception('Send bearychat msg failed')
         return
