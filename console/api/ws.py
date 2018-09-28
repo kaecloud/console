@@ -3,6 +3,7 @@ import contextlib
 from flask import session, g
 from json.decoder import JSONDecodeError
 from marshmallow import ValidationError
+import gevent
 from geventwebsocket.exceptions import WebSocketError
 
 from console.libs.utils import logger, make_app_watcher_channel_name, make_errmsg
@@ -71,7 +72,17 @@ def get_app_pods_events(socket, appname):
 
         pubsub = rds.pubsub()
         pubsub.subscribe(channel)
-        for item in pubsub.listen():
+        while True:
+            # check if the client has closed the connection
+            with gevent.Timeout(0.5, False):
+                if socket.receive() is None:
+                    break
+
+            resp = pubsub.parse_response(block=False, timeout=30)
+            if resp is None:
+                continue
+
+            item = pubsub.handle_message(resp)
             if item['type'] == 'message':
                 raw_content = item['data']
                 # omit the initial message where item['data'] is 1L
@@ -85,6 +96,7 @@ def get_app_pods_events(socket, appname):
                 except WebSocketError as e:
                     logger.warn("can't send pod event msg to client: {}".format(str(e)))
                     break
+    logger.info("ws connection closed")
 
 
 @ws.route('/app/<appname>/build')
