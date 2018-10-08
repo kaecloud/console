@@ -28,6 +28,17 @@ bp = create_api_blueprint('app', __name__, 'app')
 
 
 @contextlib.contextmanager
+def handle_k8s_error(msg="Error:"):
+    try:
+        yield
+    except ApiException as e:
+        abort(e.status, str(e))
+    except Exception as e:
+        logger.exception(msg)
+        abort(500, "internal error, please retry and contact administrator")
+
+
+@contextlib.contextmanager
 def lock_app(appname):
     name = appname
     if isinstance(name, dict):
@@ -100,13 +111,8 @@ def _get_release(appname, git_tag):
 def _get_canary_info(appname, cluster):
     ns = DEFAULT_APP_NS
     canary_appname = make_canary_appname(appname)
-    try:
+    with handle_k8s_error("Error when get app {} canary".format(appname)):
         dp = kube_api.get_deployment(canary_appname, cluster_name=cluster, ignore_404=True, namespace=ns)
-    except ApiException as e:
-        abort(e.status, "Error when delete app canary: {}".format(str(e)))
-    except Exception as e:
-        logger.exception("kubernetes error: ")
-        abort(500, 'kubernetes error: {}'.format(str(e)))
     info = {}
     if dp is None:
         info['status'] = False
@@ -203,13 +209,8 @@ def rollback_app(args, appname):
         if canary_info['status']:
             abort(403, "Please delete canary release before rollback app")
 
-        try:
+        with handle_k8s_error("failed to get kubernetes deployment of app {}".format(appname)):
             k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, namespace=ns)
-        except ApiException as e:
-            return abort(e.status, "Error when get kubernetes deployment: {}".format(str(e)))
-        except Exception as e:
-            logger.exception("failed to get kubernetes deployment of app {}".format(appname))
-            return abort(500, "internal error")
 
         version = k8s_deployment.metadata.resource_version
         release_tag = k8s_deployment.metadata.annotations['release_tag']
@@ -238,14 +239,10 @@ def rollback_app(args, appname):
         if k8s_deployment is not None and k8s_deployment.spec.replicas > specs.service.replicas:
             specs.service.replicas = k8s_deployment.spec.replicas
 
-        try:
+        with handle_k8s_error('Error when update app({}:{})'.format(appname, version)):
             kube_api.update_app(
-                appname, specs, prev_release.tag, cluster_name=cluster, version=version, renew_id=renew_id, namespace=ns)
-        except ApiException as e:
-            abort(e.status, "Error when update app: {}".format(str(e)))
-        except Exception as e:
-            logger.exception("Rollback: ")
-            abort(500, 'replace kubernetes deployment error: {}, {}'.format(str(e), version))
+                appname, specs, prev_release.tag, cluster_name=cluster,
+                version=version, renew_id=renew_id, namespace=ns)
 
     OPLog.create(
         user_id=g.user.id,
@@ -285,12 +282,8 @@ def renew_app(args, appname):
     ns = DEFAULT_APP_NS
 
     with lock_app(appname):
-        try:
+        with handle_k8s_error("Error when renew app {}".format(appname)):
             kube_api.renew_app(appname, cluster_name=cluster, namespace=ns)
-        except ApiException as e:
-            abort(e.status, "Error when renew kubernetes object {}".format(str(e)))
-        except Exception as e:
-            abort(500, "Error when renew app {}".format(str(e)))
 
     OPLog.create(
         user_id=g.user.id,
@@ -330,13 +323,9 @@ def delete_app(appname):
     # canary_info = _get_canary_info(appname, cluster)
     # if canary_info['status']:
     #     abort(403, "Please delete canary release first")
-    try:
-        with lock_app(appname):
+    with lock_app(appname):
+        with handle_k8s_error("Error when delete app {}".format(appname)):
             kube_api.delete_app(appname, app.type, ignore_404=True, cluster_name=kube_api.ALL_CLUSTER, namespace=ns)
-    except ApiException as e:
-        abort(e.status, "Error when delete kubernetes object {}".format(str(e)))
-    except Exception as e:
-        abort(500, "Error when delete kubernetes object {}".format(str(e)))
     app.delete()
 
     OPLog.create(
@@ -498,12 +487,8 @@ def get_app_pods(args, appname):
     if canary:
         name = "{}-canary".format(appname)
 
-    try:
+    with handle_k8s_error("Error when get app pods ({})".format(appname)):
         return kube_api.get_app_pods(name=name, cluster_name=cluster, namespace=ns)
-    except ApiException as e:
-        abort(e.status, "Error when get kubernetes pods object: {}".format(str(e)))
-    except Exception as e:
-        abort(500, str(e))
 
 
 @bp.route('/<appname>/deployment')
@@ -536,12 +521,9 @@ def get_app_deployment(args, appname):
     ns = DEFAULT_APP_NS
     if not app:
         abort(404, "app {} not found".format(appname))
-    try:
+
+    with handle_k8s_error("Error when get kubernetes deployment object"):
         return kube_api.get_deployment(name, cluster_name=cluster, namespace=ns)
-    except ApiException as e:
-        abort(e.status, "Error when get kubernetes deployment object: {}".format(str(e)))
-    except Exception as e:
-        abort(500, str(e))
 
 
 @bp.route('/<appname>/releases')
@@ -784,12 +766,8 @@ def create_secret(args, appname):
     ns = DEFAULT_APP_NS
     # check if the user can access the App
     get_app_raw(appname)
-    try:
+    with handle_k8s_error("Failed to create secret"):
         kube_api.create_or_update_secret(appname, data, replace=replace, cluster_name=cluster, namespace=ns)
-    except ApiException as e:
-        abort(e.status, str(e))
-    except Exception as e:
-        abort(500, str(e))
     return DEFAULT_RETURN_VALUE
 
 
@@ -822,12 +800,8 @@ def get_secret(args, appname):
     ns = DEFAULT_APP_NS
     # check if the user can access the App
     get_app_raw(appname)
-    try:
+    with handle_k8s_error("Failed to get secret"):
         return kube_api.get_secret(appname, cluster_name=cluster, namespace=ns)
-    except ApiException as e:
-        abort(e.status, str(e))
-    except Exception as e:
-        abort(500, str(e))
 
 
 @bp.route('/<appname>/configmap', methods=['POST'])
@@ -862,12 +836,8 @@ def create_config_map(args, appname):
     ns = DEFAULT_APP_NS
     # check if the user can access the App
     get_app_raw(appname)
-    try:
+    with handle_k8s_error("Failed to create config map"):
         kube_api.create_or_update_config_map(appname, cm_data, replace=replace, cluster_name=cluster, namespace=ns)
-    except ApiException as e:
-        abort(e.status, str(e))
-    except Exception as e:
-        abort(500, str(e))
     return DEFAULT_RETURN_VALUE
 
 
@@ -900,13 +870,9 @@ def get_config_map(args, appname):
     ns = DEFAULT_APP_NS
     # check if the user can access the App
     get_app_raw(appname)
-    try:
+    with handle_k8s_error("Failed to get config map"):
         raw_data = kube_api.get_config_map(appname, cluster_name=cluster, namespace=ns)
         return raw_data
-    except ApiException as e:
-        abort(e.status, str(e))
-    except Exception as e:
-        abort(500, str(e))
 
 
 @bp.route('/<appname>/yaml')
@@ -1144,12 +1110,8 @@ def scale_app(args, appname):
         abort(404, 'app {} not found'.format(appname))
 
     with lock_app(appname):
-        try:
+        with handle_k8s_error("Error when get deployment"):
             k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, namespace=ns)
-        except ApiException as e:
-            abort(e.status, "Error when get deployment: {}".format(str(e)))
-        except Exception as e:
-            abort(500, "error when get deployment {}".format(str(e)))
 
         release_tag = k8s_deployment.metadata.annotations['release_tag']
         version = k8s_deployment.metadata.resource_version
@@ -1179,13 +1141,10 @@ def scale_app(args, appname):
             renew_id = None
         else:
             renew_id = k8s_deployment.spec.template.metadata.annotations.get("renew_id", None)
-        try:
+
+        with handle_k8s_error("Error when scale app {}".format(appname)):
             kube_api.update_app(appname, specs, release_tag, version=version,
                                 renew_id=renew_id, cluster_name=cluster, namespace=ns)
-        except ApiException as e:
-            abort(e.status, "Error when update app: {}".format(str(e)))
-        except Exception as e:
-            abort(500, 'replace kubernetes deployment error: {}, {}'.format(str(e), version))
 
     OPLog.create(
         user_id=g.user.id,
@@ -1272,12 +1231,8 @@ def deploy_app(args, appname):
         if not release:
             abort(404, 'release {} not found.'.format(tag))
 
-        try:
+        with handle_k8s_error("Error when get deployment"):
             k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, ignore_404=True, namespace=ns)
-        except ApiException as e:
-            abort(e.status, "Error when get deployment: {}".format(str(e)))
-        except Exception as e:
-            abort(500, "error when get deployment {}".format(str(e)))
 
         specs = app_yaml.specs
         fix_app_spec(specs, appname, tag)
@@ -1340,6 +1295,7 @@ def deploy_app(args, appname):
         except ApiException as e:
             abort(e.status, "Error when deploy app: {}".format(str(e)))
         except Exception as e:
+            logger.exception("kubernetes error ")
             abort(500, 'kubernetes error: {}'.format(str(e)))
 
         OPLog.create(
@@ -1476,6 +1432,7 @@ def deploy_app_canary(args, appname):
         except ApiException as e:
             abort(e.status, "Error when deploy app canary: {}".format(str(e)))
         except Exception as e:
+            logger.exception("Kubernetes error ")
             abort(500, 'kubernetes error: {}'.format(str(e)))
 
         OPLog.create(
@@ -1513,13 +1470,8 @@ def delete_app_canary(args, appname):
         if not g.user.granted_to_app(app):
             abort(403, 'You\'re not granted to this app, ask administrators for permission')
 
-        try:
+        with handle_k8s_error("Error when delete app canary {}".format(appname)):
             kube_api.delete_app_canary(appname, cluster_name=cluster, ignore_404=True, namespace=ns)
-        except ApiException as e:
-            abort(e.status, "Error when delete app canary: {}".format(str(e)))
-        except Exception as e:
-            logger.exception("kubernetes error: ")
-            abort(500, 'kubernetes error: {}'.format(str(e)))
 
         OPLog.create(
             user_id=g.user.id,
@@ -1608,12 +1560,8 @@ def set_app_abtesting_rules(args, appname):
     if not canary_info['status']:
         abort(403, "you must deploy canary version before adding abtesting rules")
 
-    try:
+    with handle_k8s_error("Error when add abtesting rules"):
         kube_api.set_abtesting_rules(appname, rules, cluster_name=cluster, namespace=ns)
-    except ApiException as e:
-        abort(e.status, "Error when add abtesting rule: {}".format(str(e)))
-    except Exception as e:
-        abort(500, 'kubernetes error: {}'.format(str(e)))
     return DEFAULT_RETURN_VALUE
 
 
@@ -1665,13 +1613,9 @@ def get_app_abtesting_rules(args, appname):
     if not g.user.granted_to_app(app):
         abort(403, 'You\'re not granted to this app, ask administrators for permission')
 
-    try:
+    with handle_k8s_error("Error when get abtesting rules"):
         rules = kube_api.get_abtesting_rules(appname, cluster_name=cluster, namespace=ns)
-    except ApiException as e:
-        abort(e.status, "Error when get abtesting rule: {}".format(str(e)))
-    except Exception as e:
-        logger.exception("internal error: ")
-        abort(500, 'kubernetes error: {}'.format(str(e)))
+
     if rules is None:
         abort(404, "not found")
     return rules
