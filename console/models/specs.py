@@ -171,6 +171,7 @@ class ServiceSchema(StrictSchema):
     user = fields.Str(missing="root")
     registry = fields.Str()
     labels = fields.List(fields.Str())
+    httpsOnly = fields.Bool(missing=True)
     mountpoints = fields.List(fields.Nested(Mountpoint), validate=validate_mountpoints, missing=[])
     ports = fields.List(fields.Nested(ServicePort))
 

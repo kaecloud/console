@@ -18,7 +18,8 @@ service:
   registry: xxxx            # specify diffirent registry name
   labels:                   # labels of the container
     - proctype=router
-  
+
+  httpsOnly: true
   mountpoints:                 # setup domain for app
   - host: hello.k8s.gtapp.xyz
     path: /
