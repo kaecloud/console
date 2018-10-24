@@ -27,6 +27,7 @@ K8S_SECRETS_DIR = "/etc/k8s-secret-volume"
 CONTAINER_CONFIG_DIR = os.path.join(CONFIG_ROOT_DIR, "config")
 
 INGRESS_ANNOTATIONS_PREFIX = "nginx.ingress.kubernetes.io"
+APP_BUILD_TIMEOUT = 1800     # timeout for build image(30 minutes)
 
 # SERVER_NAME = getenv('SERVER_NAME', default='127.0.0.1')
 SENTRY_DSN = getenv('SENTRY_DSN', default='')

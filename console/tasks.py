@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 import redis_lock
 from celery import current_app
+from celery.exceptions import SoftTimeLimitExceeded
 
-from console.config import TASK_PUBSUB_CHANNEL
+from console.config import TASK_PUBSUB_CHANNEL, APP_BUILD_TIMEOUT
 from console.ext import rds, db
-from console.libs.utils import logger, save_job_log, BuildError
-from console.libs.utils import build_image_helper
+from console.libs.utils import logger, save_job_log, BuildError, build_image_helper, make_errmsg
 from console.libs.k8s import kube_api, ApiException
 from console.models import Release, Job
 
 
-@current_app.task(bind=True)
+@current_app.task(bind=True, soft_time_limit=APP_BUILD_TIMEOUT)
 def build_image(self, appname, git_tag):
     release = Release.get_by_app_and_tag(appname, git_tag)
     try:
@@ -18,6 +18,9 @@ def build_image(self, appname, git_tag):
             self.stream_output(msg)
     except BuildError as e:
         self.stream_output(e.data)
+    except SoftTimeLimitExceeded:
+        logger.warn("build timeout.")
+        self.stream_output(make_errmsg('build timeout, please test in local environment and contact administrator'))
 
 
 @current_app.task
