@@ -5,6 +5,7 @@ from json.decoder import JSONDecodeError
 from marshmallow import ValidationError
 import gevent
 from geventwebsocket.exceptions import WebSocketError
+import redis_lock
 
 from console.libs.utils import logger, make_app_watcher_channel_name, make_errmsg
 from console.libs.jsonutils import VersatileEncoder
@@ -149,6 +150,7 @@ def build_app(socket, appname):
 
     args = payload.data
     tag = args["tag"]
+    block = args['block']
 
     app = App.get_by_name(appname)
     if not app:
@@ -163,13 +165,24 @@ def build_app(socket, appname):
         socket.send(make_errmsg('release {} not found.'.format(tag), jsonize=True))
         return
 
-    async_result = build_image.delay(appname, tag)
-    for m in celery_task_stream_response(async_result.task_id):
+    # don't allow multiple build tasks for single app
+    lock_name = "__app_lock_{}_build_aaa".format(appname)
+    lck = redis_lock.Lock(rds, lock_name, expire=30, auto_renewal=True)
+    if lck.acquire(blocking=block):
         try:
-            socket.send(m)
-        except WebSocketError as e:
-            logger.warn("Can't send build msg to client: {}".format(str(e)))
-            break
+            async_result = build_image.delay(appname, tag)
+            for m in celery_task_stream_response(async_result.task_id):
+                try:
+                    socket.send(m)
+                except WebSocketError as e:
+                    # when client is disconnected, we shutdown the build task
+                    async_result.revoke(terminate=True)
+                    logger.warn("Can't send build msg to client: {}".format(str(e)))
+                    break
+        finally:
+            lck.release()
+    else:
+        socket.send(make_errmsg("there seems exist another build task and you set block to {}".format(block), jsonize=True))
 
 
 @ws.route('/job/<jobname>/log/events')

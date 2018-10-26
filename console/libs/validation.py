@@ -232,6 +232,7 @@ class ScaleSchema(StrictSchema):
 
 class BuildArgsSchema(StrictSchema):
     tag = fields.Str(required=True)
+    block = fields.Bool(missing=False)  # whether block when there exist other build task for this app
 
 
 class ClusterArgSchema(StrictSchema):
