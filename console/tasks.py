@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import redis_lock
 from celery import current_app
 from celery.exceptions import SoftTimeLimitExceeded
 
