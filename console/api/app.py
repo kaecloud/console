@@ -143,7 +143,7 @@ def list_app():
             updated: "2018-03-21 14:54:07"
             name: "test-app"
             type: "web"
-            git: "git@github.com:projecteru2/console.git"
+            git: "git@github.com:kaecloud/console.git"
     """
     return g.user.list_app()
 
@@ -171,7 +171,7 @@ def get_app(appname):
               "updated": "2018-03-21 14:54:07",
               "name": "test-app",
               "type": "web",
-              "git": "git@github.com:projecteru2/console.git",
+              "git": "git@github.com:kaecloud/console.git",
           }
     """
     return get_app_raw(appname)

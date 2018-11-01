@@ -176,6 +176,7 @@ def build_app(socket, appname):
                     socket.send(m)
                 except WebSocketError as e:
                     # when client is disconnected, we shutdown the build task
+                    # TODO: maybe need to wait task to exit.
                     async_result.revoke(terminate=True)
                     logger.warn("Can't send build msg to client: {}".format(str(e)))
                     break

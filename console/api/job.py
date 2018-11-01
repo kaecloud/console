@@ -42,7 +42,7 @@ def list_job():
             created: "2018-03-21 14:54:06"
             updated: "2018-03-21 14:54:07"
             name: "test-app"
-            git: "git@github.com:projecteru2/console.git"
+            git: "git@github.com:kaecloud/console.git"
             specs_text: hahaha
     """
     return g.user.list_job()
