@@ -37,7 +37,8 @@ service:
     rollingUpdate:          # only valid when type is RollingUpdate
       maxSurge: 25%
       maxUnavailable: 25%
-      
+  volumes: []               # a list of k8s's volume object, see https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.10/#volume-v1-core
+
   containers:
   - name: "xxx"
     image: {IMAGE}           # image of the container
@@ -63,11 +64,7 @@ service:
         hostIP: xxx
         hostPort: xxx
         name: xxx
-    volumes:                      # volume files
-      - /var/log
-      - /etc/nginx/nginx.conf
-    dfsVolumes:
-      - /data
+    volumeMounts: []       # a list of k8s's volumeMounts object, see https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.10/#volumemount-v1-core
     secrets:
       envNameList: []      # required, environment variable list
       keyList: [xxx]       # optional, if not specified, then `envNameList` is used,

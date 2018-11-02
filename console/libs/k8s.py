@@ -453,8 +453,9 @@ class ClientApiBundle(object):
     def _construct_pod_spec(cls, name, volumes_root, container_spec_list,
                             restartPolicy='Always', initial_env=None,
                             initial_vol_mounts=None, default_work_dir=None, secret_name=None):
+        configmap_items = []
         if secret_name is None:
-            secret_name=name
+            secret_name = name
 
         pod_spec = Dict({
             'volumes': [],
@@ -517,42 +518,16 @@ class ClientApiBundle(object):
                 c.resources['limits'] = limits
 
             # mount log dir
-            if initial_vol_mounts is not None:
-                c.volumeMounts = copy.deepcopy(initial_vol_mounts)
-            else:
-                c.volumeMounts = []
-            if 'volumes' in container_spec:
-                for container_path in container_spec['volumes']:
-                    vol_name = container_path.replace('/', '-').strip('-')
-                    vol_name = vol_name.replace('.', '-')
-                    vol = {
-                        "name": vol_name,
-                        "hostPath": {
-                            "path": volumes_root + container_path,
-                            "type": "DirectoryOrCreate",
-                        }
-                    }
-                    pod_spec.volumes.append(vol)
-                    volume_mount = {
-                        "name": vol_name,
-                        "mountPath": container_path,
-                    }
-                    c.volumeMounts.append(volume_mount)
+            if initial_vol_mounts is None:
+                initial_vol_mounts = []
+
+            c.volumeMounts = copy.deepcopy(initial_vol_mounts) + container_spec['volumeMounts']
 
             if container_spec.configmap:
-                cfg_vol = {
-                    "name": "configmap-volume",
-                    "configMap": {
-                        "name": secret_name,
-                        "items": [
-                            {
-                                "key": container_spec.configmap.key,
-                                "path": container_spec.configmap.filename,
-                            }
-                        ]
-                    }
-                }
-                pod_spec.volumes.append(cfg_vol)
+                configmap_items.append({
+                    "key": container_spec.configmap.key,
+                    "path": container_spec.configmap.filename,
+                })
                 volume_mount = {
                     "name": "configmap-volume",
                     "mountPath": container_spec.configmap.dir,
@@ -573,6 +548,16 @@ class ClientApiBundle(object):
                     if 'env' not in c:
                         c.env = []
                     c.env.append(secret_ref)
+
+        if len(configmap_items) > 0:
+            cfg_vol = {
+                "name": "configmap-volume",
+                "configMap": {
+                    "name": secret_name,
+                    "items": configmap_items
+                }
+            }
+            pod_spec.volumes.append(cfg_vol)
 
         pod_spec.containers = containers
         pod_spec.restartPolicy = restartPolicy
@@ -656,6 +641,8 @@ class ClientApiBundle(object):
                 }
             }
         )
+        pod_spec.volumes = pod_spec.volumes + svc['volumes']
+
         obj.spec.template.spec = pod_spec
         return obj
 

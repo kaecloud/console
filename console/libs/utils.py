@@ -135,8 +135,8 @@ def make_sentence_json(message):
     return msg + '\n'
 
 
-def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
-    return ''.join(random.choice(chars) for _ in range(size))
+def id_generator(size=6, chars=string.ascii_uppercase + string.digits, prefix=""):
+    return prefix + ''.join(random.choice(chars) for _ in range(size))
 
 
 def generate_unique_dirname(prefix=None):

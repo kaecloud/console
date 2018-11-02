@@ -55,6 +55,34 @@ def validate_mountpoints(lst):
         hosts.add(host)
 
 
+def validate_pod_volumes(lst):
+    for vol in lst:
+        if 'name' not in vol:
+            raise ValidationError("need `name` field for volume")
+        if 'persistentVolumeClaim' in vol:
+            pvc = vol['persistentVolumeClaim']
+            if not isinstance(pvc, dict):
+                raise ValidationError("wrong PVC volume")
+            if 'claimName' not in pvc:
+                raise ValidationError("need `claimName` field for PVC volume")
+        # notify use to use built-in Secret support
+        if 'secret' in vol:
+            raise ValidationError("please don't use Secret directory")
+        # notify use to use built-in ConfigMap support
+        if 'configMap' in vol:
+            raise ValidationError("please don't use ConfigMap directly")
+        if 'hostPath' in vol:
+            host_path = vol['hostPath']
+            if not isinstance(host_path, dict):
+                raise ValidationError('wrong format for `hostPath` volumes')
+            if 'path' not in host_path:
+                raise ValidationError('need `path` field for hostPath volumes')
+            inner_path = host_path['path']
+            # 杜绝安全问题，避免瞎搞，比如将整个根目录挂载到容器
+            if not inner_path.startswith('/data/kae'):
+                raise ValidationError('hostPath volume\'s path must be subdirectory of /data/kae')
+
+
 def validate_build_name(name):
     if ':' in name:
         raise ValidationError("build name can't contain `:`.")
@@ -135,6 +163,11 @@ class SecretSchema(StrictSchema):
         return data
 
 
+class VolumeMountSchema(StrictSchema):
+    name = fields.Str(required=True)
+    mountPath = fields.Str(required=True)
+
+
 build_schema = BuildSchema()
 
 
@@ -155,10 +188,9 @@ class ContainerSpec(StrictSchema):
     memory = fields.Dict(validate=validate_memory)
     gpu = fields.Int()
 
-    volumes = fields.List(fields.Str(), validate=validate_abs_path_list)
-    dfsVolumes = fields.List(fields.Str(), validate=validate_abs_path_list)
     configmap = fields.Nested(ConfigMapSchema)
     secrets = fields.Nested(SecretSchema)
+    volumeMounts = fields.List(fields.Nested(VolumeMountSchema), missing=[])
 
 
 class ServicePort(StrictSchema):
@@ -181,6 +213,7 @@ class ServiceSchema(StrictSchema):
     strategy = fields.Nested(UpdateStrategy)
 
     containers = fields.List(fields.Nested(ContainerSpec), required=True)
+    volumes = fields.List(fields.Dict(), validate=validate_pod_volumes, missing=[])
 
 
 service_schema = ServiceSchema()
