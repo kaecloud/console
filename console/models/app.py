@@ -30,7 +30,7 @@ class App(BaseModelMixin):
                     backref=db.backref('apps', lazy='dynamic'))
 
     def __str__(self):
-        return '<{}:{}>'.format(self.name, self.git)
+        return self.name
 
     @classmethod
     def get_or_create(cls, name, git, apptype):
