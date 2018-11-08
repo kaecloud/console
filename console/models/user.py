@@ -126,11 +126,17 @@ class User(BaseModelMixin):
         return self.apps.all()
 
     def list_job(self):
-        from console.models.job import JobUserRelation, Job
+        from console.models.job import Job
         if self.privileged:
             return Job.get_all()
-        rs = JobUserRelation.query.filter_by(user_id=self.id)
-        return [Job.get_by_name(r.jobname) for r in rs]
+        return self.jobs.all()
+
+    def granted_to_job(self, job):
+        if self.privileged:
+            return True
+
+        from console.models.job import Job
+        return self.jobs.filter(Job.id == job.id).first() is not None
 
     def elevate_privilege(self):
         self.privileged = 1
