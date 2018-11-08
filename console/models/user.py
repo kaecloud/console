@@ -50,6 +50,8 @@ def get_current_user():
 
 
 class User(BaseModelMixin):
+    __tablename__ = "user"
+
     username = db.Column(db.CHAR(50), nullable=False, unique=True)
     email = db.Column(db.String(100), nullable=False, unique=True, index=True)
     nickname = db.Column(db.CHAR(50), nullable=False)
@@ -113,16 +115,15 @@ class User(BaseModelMixin):
     def granted_to_app(self, app):
         if self.privileged:
             return True
-        from console.models.app import AppUserRelation
-        r = AppUserRelation.query.filter_by(appname=app.name, user_id=self.id).all()
-        return bool(r)
+
+        from console.models.app import App
+        return self.apps.filter(App.id == app.id).first() is not None
 
     def list_app(self):
-        from console.models.app import AppUserRelation, App
+        from console.models.app import App
         if self.privileged:
             return App.get_all()
-        rs = AppUserRelation.query.filter_by(user_id=self.id)
-        return [App.get_by_name(r.appname) for r in rs]
+        return self.apps.all()
 
     def list_job(self):
         from console.models.job import JobUserRelation, Job
@@ -135,3 +136,6 @@ class User(BaseModelMixin):
         self.privileged = 1
         db.session.add(self)
         db.session.commit()
+
+    def __str__(self):
+        return self.nickname

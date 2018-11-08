@@ -1,7 +1,7 @@
 from flask import request, redirect, url_for, current_app, abort, g
 from flask_admin.contrib import sqla
 
-from console.models import AppUserRelation, App, Release, AppYaml, SpecVersion, Job, OPLog, User
+from console.models import App, Release, AppYaml, SpecVersion, Job, OPLog, User
 from console.ext import db
 from console.config import FAKE_USER
 from console.models.user import get_current_user
@@ -29,4 +29,4 @@ def init_admin(admin):
     admin.add_view(ConsoleModelView(Release, db.session, endpoint='release_db_admin'))
     admin.add_view(ConsoleModelView(SpecVersion, db.session, endpoint='spec_version_db_admin'))
     admin.add_view(ConsoleModelView(OPLog, db.session, endpoint='oplog_db_admin'))
-    admin.add_view(ConsoleModelView(AppUserRelation, db.session))
+

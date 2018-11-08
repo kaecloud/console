@@ -37,7 +37,7 @@ def get_banner():
 
 
 def pre_imports():
-    from console.models import User, App, Release, AppUserRelation, OPLog
+    from console.models import User, App, Release, OPLog
     from console.ext import db, rds
     return locals()
 

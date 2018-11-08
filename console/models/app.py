@@ -14,11 +14,20 @@ from console.models.base import BaseModelMixin
 from console.models.specs import app_specs_schema
 
 
+app_user_association = db.Table('app_user_association',
+    db.Column('app_id', db.Integer, db.ForeignKey('app.id'), primary_key=True),
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True)
+)
+
+
 class App(BaseModelMixin):
+    __tablename__ = "app"
     name = db.Column(db.CHAR(64), nullable=False, unique=True)
     # 形如 git@gitlab.ricebook.net:platform/apollo.git
     git = db.Column(db.String(255), nullable=False)
     type = db.Column(db.CHAR(64), nullable=False)
+    users = db.relationship('User', secondary=app_user_association,
+                    backref=db.backref('apps', lazy='dynamic'))
 
     def __str__(self):
         return '<{}:{}>'.format(self.name, self.git)
@@ -38,25 +47,21 @@ class App(BaseModelMixin):
     def get_by_name(cls, name):
         return cls.query.filter_by(name=name).first()
 
-    @classmethod
-    def get_by_user(cls, user_id):
-        """拿这个user可以有的app, 跟app自己的user_id没关系."""
-        names = AppUserRelation.get_appname_by_user_id(user_id)
-        return [cls.get_by_name(n) for n in names]
-
     def grant_user(self, user):
-        AppUserRelation.create(self, user)
+        if user.granted_to_app(self):
+            return
+
+        self.users.append(user)
+        db.session.add(self)
+        db.session.commit()
 
     def revoke_user(self, user):
-        AppUserRelation.query.filter_by(appname=self.name, user_id=user.id).delete()
+        self.users.remove(user)
+        db.session.add(self)
         db.session.commit()
 
     def list_users(self):
-        from console.models.user import User
-        user_ids = [r.user_id for r in
-                    AppUserRelation.query.filter_by(appname=self.name).all()]
-        users = [User.get(id_) for id_ in user_ids]
-        return users
+        return self.users.all()
 
     @property
     def latest_release(self):
@@ -90,8 +95,6 @@ class App(BaseModelMixin):
         # delete all releases
         Release.query.filter_by(app_id=self.id).delete()
         SpecVersion.query.filter_by(app_id=self.id).delete()
-        # delete all permissions
-        AppUserRelation.query.filter_by(appname=appname).delete()
         return super(App, self).delete()
 
 
@@ -367,26 +370,6 @@ class SpecVersion(BaseModelMixin):
         dic = yaml.load(self.specs_text)
         unmarshal_result = app_specs_schema.load(dic)
         return unmarshal_result.data
-
-
-class AppUserRelation(BaseModelMixin):
-    __table_args__ = (
-        db.UniqueConstraint('user_id', 'appname'),
-    )
-
-    appname = db.Column(db.CHAR(64), nullable=False, index=True)
-    user_id = db.Column(db.Integer, nullable=False)
-
-    @classmethod
-    def create(cls, app, user):
-        relation = cls(appname=app.name, user_id=user.id)
-        try:
-            db.session.add(relation)
-            db.session.commit()
-            return relation
-        except IntegrityError:
-            db.session.rollback()
-            raise
 
 
 event.listen(
