@@ -67,8 +67,8 @@ def validate_pod_volumes(lst):
                 raise ValidationError("need `claimName` field for PVC volume")
         # notify use to use built-in Secret support
         if 'secret' in vol:
-            raise ValidationError("please don't use Secret directory")
-        # notify use to use built-in ConfigMap support
+            raise ValidationError("please don't use Secret directly")
+        # notify user to use built-in ConfigMap support
         if 'configMap' in vol:
             raise ValidationError("please don't use ConfigMap directly")
         if 'hostPath' in vol:
@@ -78,7 +78,7 @@ def validate_pod_volumes(lst):
             if 'path' not in host_path:
                 raise ValidationError('need `path` field for hostPath volumes')
             inner_path = host_path['path']
-            # 杜绝安全问题，避免瞎搞，比如将整个根目录挂载到容器
+            # 杜绝安全问题，避免瞎搞，比如将整个根目录挂载到容器(其实应该做的更严格，比如每个app一个目录)
             if not inner_path.startswith('/data/kae'):
                 raise ValidationError('hostPath volume\'s path must be subdirectory of /data/kae')
 

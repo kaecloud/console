@@ -27,7 +27,7 @@ class App(BaseModelMixin):
     git = db.Column(db.String(255), nullable=False)
     type = db.Column(db.CHAR(64), nullable=False)
     users = db.relationship('User', secondary=app_user_association,
-                    backref=db.backref('apps', lazy='dynamic'))
+                            backref=db.backref('apps', lazy='dynamic'))
 
     def __str__(self):
         return self.name
@@ -104,6 +104,7 @@ class Release(BaseModelMixin):
     )
     # git tag
     tag = db.Column(db.CHAR(64), nullable=False, index=True)
+    # TODO use ForeignKey
     app_id = db.Column(db.Integer, nullable=False)
     image = db.Column(db.CHAR(255), nullable=False, default='')
     build_status = db.Column(db.Boolean, nullable=False, default=False)
@@ -300,6 +301,7 @@ class AppYaml(BaseModelMixin):
 
 
 class SpecVersion(BaseModelMixin):
+    # TODO use ForeignKey
     # git tag
     tag = db.Column(db.CHAR(64), nullable=False, index=True)
     app_id = db.Column(db.Integer, nullable=False)
