@@ -25,6 +25,16 @@ mako = MakoTemplates()
 rds = StrictRedis.from_url(REDIS_URL)
 
 
+class PrivateTokenClientError(Exception):
+    def __init__(self, resp):
+        self.resp = resp
+        self.code = res.getcode()
+        self.reason = res.reason
+
+    def __str__(self):
+        return "Fetch Private token Error: <status: {}, reason: {}>".format(self.code, self.reason)
+
+
 class PrivateTokenClient(object):
     def __init__(self, api_base_url):
         self.api_base_url = api_base_url
@@ -40,7 +50,7 @@ class PrivateTokenClient(object):
         res_body = res.read()
         data = json.loads(res_body.decode("utf-8"))
         if res.getcode() < 200 or res.getcode() >= 300:
-            raise Exception("HTTP Get Error: <url: {}, status: {}, reason: {}>".format(url, res.getcode(), res.reason))
+            raise PrivateTokenClientError(res)
         params = {
             'sub': str(data['id']),
             'name': data['name'],

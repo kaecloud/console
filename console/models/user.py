@@ -6,7 +6,7 @@ from flask import abort, session, request
 from sqlalchemy.exc import IntegrityError
 
 from console.config import OAUTH_APP_NAME, EMAIL_DOMAIN
-from console.ext import db, fetch_token, update_token, oauth_client, private_token_client
+from console.ext import db, fetch_token, update_token, oauth_client, private_token_client, PrivateTokenClientError
 from console.models.base import BaseModelMixin
 from console.libs.utils import logger
 
@@ -27,6 +27,8 @@ def get_current_user():
             return None
         try:
             authlib_user = private_token_client.profile(private_token)
+        except PrivateTokenClientError as e:
+            return abort(e.code, 'fetch {} profile failed: {}'.format(OAUTH_APP_NAME, e))
         except Exception as e:
             logger.exception('fetch {} profile failed: {}'.format(OAUTH_APP_NAME, e))
             return abort(500, 'fetch {} profile failed: {}'.format(OAUTH_APP_NAME, e))
