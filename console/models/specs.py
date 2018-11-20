@@ -188,7 +188,7 @@ class ContainerSpec(StrictSchema):
     memory = fields.Dict(validate=validate_memory)
     gpu = fields.Int()
 
-    configmap = fields.Nested(ConfigMapSchema)
+    configs = fields.List(fields.Nested(ConfigMapSchema), missing=[])
     secrets = fields.Nested(SecretSchema)
     volumeMounts = fields.List(fields.Nested(VolumeMountSchema), missing=[])
 

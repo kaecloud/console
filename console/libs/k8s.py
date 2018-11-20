@@ -453,7 +453,7 @@ class ClientApiBundle(object):
     def _construct_pod_spec(cls, name, volumes_root, container_spec_list,
                             restartPolicy='Always', initial_env=None,
                             initial_vol_mounts=None, default_work_dir=None, secret_name=None):
-        configmap_items = []
+        has_configmap = False
         if secret_name is None:
             secret_name = name
 
@@ -523,16 +523,17 @@ class ClientApiBundle(object):
 
             c.volumeMounts = copy.deepcopy(initial_vol_mounts) + container_spec['volumeMounts']
 
-            if container_spec.configmap:
-                configmap_items.append({
-                    "key": container_spec.configmap.key,
-                    "path": container_spec.configmap.filename,
-                })
-                volume_mount = {
-                    "name": "configmap-volume",
-                    "mountPath": container_spec.configmap.dir,
-                }
-                c.volumeMounts.append(volume_mount)
+            if len(container_spec.configs) > 0:
+                has_configmap = True
+                for cfg in container_spec.configs:
+                    container_abs_path = os.path.join(cfg.dir, cfg.filename)
+                    volume_mount = {
+                        "name": "configmap-volume",
+                        "mountPath": container_abs_path,
+                        "subPath": cfg.key,
+                        "readOnly": True,
+                    }
+                    c.volumeMounts.append(volume_mount)
 
             if container_spec.secrets:
                 for envname, key in zip(container_spec.secrets.envNameList, container_spec.secrets.keyList):
@@ -549,12 +550,11 @@ class ClientApiBundle(object):
                         c.env = []
                     c.env.append(secret_ref)
 
-        if len(configmap_items) > 0:
+        if has_configmap:
             cfg_vol = {
                 "name": "configmap-volume",
                 "configMap": {
                     "name": secret_name,
-                    "items": configmap_items
                 }
             }
             pod_spec.volumes.append(cfg_vol)

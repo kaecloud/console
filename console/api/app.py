@@ -59,8 +59,8 @@ def get_spec_secret_keys(specs):
 def get_spec_configmap_keys(specs):
     keys = []
     for c in specs.service.containers:
-        if c.configmap:
-            keys.append(c.configmap.key)
+        for cfg in c.configs:
+            keys.append(cfg.key)
     return keys
 
 
