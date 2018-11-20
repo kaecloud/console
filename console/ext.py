@@ -28,8 +28,8 @@ rds = StrictRedis.from_url(REDIS_URL)
 class PrivateTokenClientError(Exception):
     def __init__(self, resp):
         self.resp = resp
-        self.code = res.getcode()
-        self.reason = res.reason
+        self.code = resp.getcode()
+        self.reason = resp.reason
 
     def __str__(self):
         return "Fetch Private token Error: <status: {}, reason: {}>".format(self.code, self.reason)
