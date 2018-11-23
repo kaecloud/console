@@ -7,7 +7,7 @@ import gevent
 from geventwebsocket.exceptions import WebSocketError
 import redis_lock
 
-from console.libs.utils import logger, make_app_watcher_channel_name, make_errmsg
+from console.libs.utils import logger, make_app_watcher_channel_name, make_errmsg, build_image_helper, BuildError
 from console.libs.jsonutils import VersatileEncoder
 from console.libs.k8s import kube_api, ApiException
 from console.libs.validation import build_args_schema, cluster_args_schema, cluster_canary_schema
@@ -73,30 +73,36 @@ def get_app_pods_events(socket, appname):
 
         pubsub = rds.pubsub()
         pubsub.subscribe(channel)
-        while True:
-            # check if the client has closed the connection
-            with gevent.Timeout(0.5, False):
-                if socket.receive() is None:
-                    break
+        try:
+            while True:
+                # check if the client has closed the connection
+                with gevent.Timeout(0.5, False):
+                    if socket.receive() is None:
+                        break
 
-            resp = pubsub.parse_response(block=False, timeout=30)
-            if resp is None:
-                continue
-
-            item = pubsub.handle_message(resp)
-            if item['type'] == 'message':
-                raw_content = item['data']
-                # omit the initial message where item['data'] is 1L
-                if not isinstance(raw_content, (bytes, str)):
+                resp = pubsub.parse_response(block=False, timeout=30)
+                if resp is None:
                     continue
-                content = raw_content
-                if isinstance(content, bytes):
-                    content = content.decode('utf-8')
-                try:
-                    socket.send(content)
-                except WebSocketError as e:
-                    logger.warn("can't send pod event msg to client: {}".format(str(e)))
-                    break
+
+                item = pubsub.handle_message(resp)
+                if item['type'] == 'message':
+                    raw_content = item['data']
+                    # omit the initial message where item['data'] is 1L
+                    if not isinstance(raw_content, (bytes, str)):
+                        continue
+                    content = raw_content
+                    if isinstance(content, bytes):
+                        content = content.decode('utf-8')
+                    try:
+                        socket.send(content)
+                    except WebSocketError as e:
+                        logger.warn("can't send pod event msg to client: {}".format(str(e)))
+                        break
+        finally:
+            # need close the connection created by PUB/SUB,
+            # otherwise it will cause too many redis connections
+            pubsub.unsubscribe()
+            pubsub.close()
     logger.info("ws connection closed")
 
 

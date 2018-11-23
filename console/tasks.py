@@ -97,21 +97,25 @@ def celery_task_stream_response(celery_task_ids):
     task_progress_channels = [TASK_PUBSUB_CHANNEL.format(task_id=id_) for id_ in celery_task_ids]
     pubsub = rds.pubsub()
     pubsub.subscribe(task_progress_channels)
-    for item in pubsub.listen():
-        # each content is a single JSON encoded grpc message
-        raw_content = item['data']
-        # omit the initial message where item['data'] is 1L
-        if not isinstance(raw_content, (bytes, str)):
-            continue
-        content = raw_content
-        if isinstance(content, bytes):
-            content = content.decode('utf-8')
-        logger.debug('Got pubsub message: %s', content)
-        # task will publish TASK_PUBSUB_EOF at success or failure
-        if content.startswith('CELERY_TASK_DONE'):
-            finished_task_id = content[content.find(':') + 1:]
-            finished_task_channel = TASK_PUBSUB_CHANNEL.format(task_id=finished_task_id)
-            logger.debug('Task %s finished, break celery_task_stream_response', finished_task_id)
-            pubsub.unsubscribe(finished_task_channel)
-        else:
-            yield content
+    try:
+        for item in pubsub.listen():
+            # each content is a single JSON encoded grpc message
+            raw_content = item['data']
+            # omit the initial message where item['data'] is 1L
+            if not isinstance(raw_content, (bytes, str)):
+                continue
+            content = raw_content
+            if isinstance(content, bytes):
+                content = content.decode('utf-8')
+            logger.debug('Got pubsub message: %s', content)
+            # task will publish TASK_PUBSUB_EOF at success or failure
+            if content.startswith('CELERY_TASK_DONE'):
+                finished_task_id = content[content.find(':') + 1:]
+                finished_task_channel = TASK_PUBSUB_CHANNEL.format(task_id=finished_task_id)
+                logger.debug('Task %s finished, break celery_task_stream_response', finished_task_id)
+                pubsub.unsubscribe(finished_task_channel)
+            else:
+                yield content
+    finally:
+        pubsub.unsubscribe()
+        pubsub.close()
