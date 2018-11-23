@@ -176,16 +176,23 @@ def build_app(socket, appname):
     lck = redis_lock.Lock(rds, lock_name, expire=30, auto_renewal=True)
     if lck.acquire(blocking=block):
         try:
-            async_result = build_image.delay(appname, tag)
-            for m in celery_task_stream_response(async_result.task_id):
-                try:
-                    socket.send(m)
-                except WebSocketError as e:
-                    # when client is disconnected, we shutdown the build task
-                    # TODO: maybe need to wait task to exit.
-                    async_result.revoke(terminate=True)
-                    logger.warn("Can't send build msg to client: {}".format(str(e)))
-                    break
+            for msg in build_image_helper(appname, release):
+                socket.send(json.dumps(msg, cls=VersatileEncoder))
+            # async_result = build_image.delay(appname, tag)
+            # for m in celery_task_stream_response(async_result.task_id):
+            #     try:
+            #         socket.send(m)
+            #     except WebSocketError as e:
+            #         # when client is disconnected, we shutdown the build task
+            #         # TODO: maybe need to wait task to exit.
+            #         async_result.revoke(terminate=True)
+            #         logger.warn("Can't send build msg to client: {}".format(str(e)))
+            #         break
+
+        except BuildError as e:
+            socket.send(json.dumps(e.data, cls=VersatileEncoder))
+        except Exception as e:
+            socket.send(make_errmsg("error when build app {}: {}".format(appname, str(e)), jsonize=True))
         finally:
             lck.release()
     else:
