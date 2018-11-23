@@ -66,6 +66,8 @@ def create_job(args):
             error: null
     """
     specs_text = args.get('specs_text', None)
+    cluster = args.get('cluster', kube_api.DEFAULT_CLUSTER)
+
     if specs_text:
         try:
             yaml_dict = yaml.load(specs_text)
@@ -129,7 +131,7 @@ def create_job(args):
             abort(500, "clone and copy code error: {}".format(str(e)))
 
     with handle_k8s_err("Error when create job", clean_func=clean_func):
-        kube_api.create_job(specs, namespace=DEFAULT_JOB_NS)
+        kube_api.create_job(specs, namespace=DEFAULT_JOB_NS, cluster_name=cluster)
 
     try:
         job.grant_user(g.user)

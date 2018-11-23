@@ -286,6 +286,7 @@ class JobArgsSchema(StrictSchema):
     command = fields.Str()
     gpu = fields.Int()
     autoRestart = fields.Bool(missing=False)
+    cluster = fields.Str(required=True, validate=validate_cluster_name)
 
     specs_text = fields.Str()
 
