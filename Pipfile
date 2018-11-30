@@ -1,5 +1,5 @@
 [[source]]
-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+url = "https://mirrors.aliyun.com/pypi/simple/"
 verify_ssl = true
 name = "pypi"
 
@@ -21,7 +21,7 @@ flask-migrate = "*"
 flask-admin = "*"
 loginpass = "*"
 authlib = "*"
-redis = "*"
+redis = "==2.10.6"
 smart-getenv = "*"
 sqlalchemy = "*"
 werkzeug = "*"
