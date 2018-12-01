@@ -14,6 +14,19 @@ spec:
   - host: console.gtapp.xyz
     http:
       paths:
-      - backend:
+      - path: /api
+        backend:
           serviceName: kae-console
+          servicePort: 80
+      - path: /user
+        backend:
+          serviceName: kae-console
+          servicePort: 80
+      - path: /static
+        backend:
+          serviceName: kae-console-ui
+          servicePort: 80
+      - path: /
+        backend:
+          serviceName: kae-console-ui
           servicePort: 80
