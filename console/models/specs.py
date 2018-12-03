@@ -106,6 +106,7 @@ def validate_percentage_or_int(ss):
 class Mountpoint(StrictSchema):
     host = fields.Str(required=True)
     path = fields.Str(missing="/")
+    paths = fields.List(fields.Str(), missing=['/'])
     tlsSecret = fields.Str()
 
 

@@ -708,7 +708,7 @@ class ClientApiBundle(object):
         tls_list = []
         mp_cfg = {}
         for mp in svc.mountpoints:
-            mp_cfg[mp.host] = mp.path
+            mp_cfg[mp.host] = mp.paths
             if mp.tlsSecret:
                 ingress_tls = {
                     "hosts": [
@@ -722,7 +722,7 @@ class ClientApiBundle(object):
         if cluster_domain_cfg is not None:
             default_domain = appname + '.' + cluster_domain_cfg['domain']
             if default_domain not in mp_cfg:
-                mp_cfg[default_domain] = '/'
+                mp_cfg[default_domain] = ['/']
 
             # setup tls
             ingress_tls = {
@@ -737,22 +737,23 @@ class ClientApiBundle(object):
         if len(mp_cfg) == 0:
             raise KubeError("web app(cluster: {}) should at least have one host, add a host to mountpoints or check cluster's defaut host".format(cluster))
 
-        for host, path in mp_cfg.items():
+        for host, paths in mp_cfg.items():
             rule = {
                 'host': host,
                 'http': {
                     'paths': [
-                        {
-                            'path': path,
-                            'backend': {
-                                'serviceName': appname,
-                                'servicePort': 80
-                            },
-
-                        },
                     ]
                 }
             }
+            for path in paths:
+                rule['http']['paths'].append({
+                    'path': path,
+                    'backend': {
+                        'serviceName': appname,
+                        'servicePort': 80
+                    },
+
+                })
             obj.spec.rules.append(rule)
         obj.spec.tls = tls_list
         return obj

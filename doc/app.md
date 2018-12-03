@@ -22,7 +22,9 @@ service:
   httpsOnly: true
   mountpoints:                 # setup domain for app
   - host: hello.k8s.gtapp.xyz
-    path: /
+    paths:
+    - /
+    - /static
     tlsSecret: haha            # name of the secret which contains certification, ignore it if app needn't support https
   ports:                     # ports exposed in kubernetes service
   - port: 80           # service port (required)
