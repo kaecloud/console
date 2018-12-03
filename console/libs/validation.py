@@ -9,6 +9,11 @@ from console.models.base import StrictSchema
 from console.libs.k8s import kube_api
 
 
+def validate_positive_integer(i):
+    if i <= 0:
+        raise ValidationError("Need a positive integer")
+
+
 def validate_jobname(name):
     regex = re.compile(r'[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
     if regex.match(name) is None:
@@ -167,6 +172,11 @@ def validate_cluster_name(cluster):
         raise ValidationError("cluster {} not exists".format(cluster))
 
 
+class PaginationSchema(StrictSchema):
+    page = fields.Int(missing=1, validate=validate_positive_integer)
+    size = fields.Int(missing=200)
+
+
 class RegisterSchema(StrictSchema):
     appname = fields.Str(required=True)
     tag = fields.Str(required=True)
@@ -310,3 +320,4 @@ scale_schema = ScaleSchema()
 build_args_schema = BuildArgsSchema()
 secret_schema = SecretArgsSchema()
 config_map_schema = ConfigMapArgsSchema()
+page_args_schema = PaginationSchema()

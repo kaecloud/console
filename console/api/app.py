@@ -13,7 +13,7 @@ from webargs.flaskparser import use_args
 from console.libs.validation import (
     RegisterSchema, UserSchema, RollbackSchema, SecretArgsSchema, ConfigMapArgsSchema,
     ScaleSchema, DeploySchema, ClusterArgSchema, ABTestingSchema,
-    ClusterCanarySchema, SpecsArgsSchema, AppYamlArgsSchema,
+    ClusterCanarySchema, SpecsArgsSchema, AppYamlArgsSchema, PaginationSchema
 )
 from console.libs.utils import logger, make_canary_appname
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
@@ -123,8 +123,9 @@ def _get_canary_info(appname, cluster):
 
 
 @bp.route('/')
+@use_args(PaginationSchema())
 @user_require(False)
-def list_app():
+def list_app(args):
     """
     List all the apps associated with the current logged in user, for
     administrators, list all apps
@@ -145,7 +146,9 @@ def list_app():
             type: "web"
             git: "git@github.com:kaecloud/console.git"
     """
-    return g.user.list_app()
+    limit = args['size']
+    start = (args['page'] - 1) * limit
+    return g.user.list_app(start, limit)
 
 
 @bp.route('/<appname>')
@@ -527,8 +530,9 @@ def get_app_deployment(args, appname):
 
 
 @bp.route('/<appname>/releases')
+@use_args(PaginationSchema())
 @user_require(False)
-def get_app_releases(appname):
+def get_app_releases(args, appname):
     """
     List every release of the specified app
     ---
@@ -557,7 +561,9 @@ def get_app_releases(appname):
             tag: v0.0.1
     """
     app = get_app_raw(appname)
-    return Release.get_by_app(app.name)
+    limit = args['size']
+    start = (args['page'] - 1) * limit
+    return Release.get_by_app(app.name, start, limit)
 
 
 @bp.route('/<appname>/version/<tag>')

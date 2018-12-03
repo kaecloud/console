@@ -121,11 +121,11 @@ class User(BaseModelMixin):
         from console.models.app import App
         return self.apps.filter(App.id == app.id).first() is not None
 
-    def list_app(self):
+    def list_app(self, start=0, limit=500):
         from console.models.app import App
         if self.privileged:
-            return App.get_all()
-        return self.apps.all()
+            return App.get_all()[start: start+limit]
+        return self.apps.all()[start: start+limit]
 
     def list_job(self):
         from console.models.job import Job
