@@ -229,7 +229,7 @@ def make_celery(app):
 
 
 def create_app():
-    app = Flask(__name__, static_url_path='/static', static_folder=STATIC_DIR, template_folder=TEMPLATE_DIR)
+    app = Flask(__name__)
 
     # CORS(app)
     # cors = CORS(app, resources={r"/api/*": {"origins": "*"}})
