@@ -15,7 +15,7 @@ from console.libs.validation import (
     ScaleSchema, DeploySchema, ClusterArgSchema, ABTestingSchema,
     ClusterCanarySchema, SpecsArgsSchema, AppYamlArgsSchema, PaginationSchema
 )
-from console.libs.utils import logger, make_canary_appname
+from console.libs.utils import logger, make_canary_appname, bearychat_sendmsg
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
 from console.models import App, Release, SpecVersion, User, OPLog, OPType, AppYaml
 from console.models.specs import fix_app_spec, app_specs_schema
@@ -338,6 +338,9 @@ def delete_app(appname):
         tag=tag,
         action=OPType.DELETE_APP,
     )
+
+    msg = 'Warning: App **{}** has been deleted by **{}**.'.format(appname, g.user.nickname)
+    bearychat_sendmsg('platform', msg)
     return DEFAULT_RETURN_VALUE
 
 
