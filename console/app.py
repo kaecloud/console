@@ -11,9 +11,7 @@ from flask import jsonify, g, Flask, request
 from flask_migrate import Migrate
 from flask_admin import Admin
 from flasgger import Swagger
-# from whitenoise import WhiteNoise
 
-# from raven.contrib.flask import Sentry
 from werkzeug.utils import import_string
 
 from console.config import (
@@ -300,8 +298,10 @@ def create_app():
             'messages': messages,
         }), 422
 
-    # add whitenoise
-    # app.wsgi_app = WhiteNoise(app.wsgi_app, root=STATIC_DIR)
+    @app.before_first_request
+    def prepare_k8s():
+        # placeholder to prepare environment
+        pass
 
     return app
 
