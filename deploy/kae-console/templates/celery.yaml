@@ -38,11 +38,11 @@ spec:
           mountPath: /etc/k8s-secret-volume
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "250m"
+            memory: "256Mi"
+            cpu: "500m"
           limits:
             memory: "512Mi"
-            cpu: "750m"
+            cpu: "2"
       volumes:
       - name: docker-sock-volume
         hostPath:

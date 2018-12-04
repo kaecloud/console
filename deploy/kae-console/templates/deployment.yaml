@@ -28,6 +28,9 @@ spec:
         # If not specified, Dashboard will attempt to auto discover the API server and connect
         # to it. Uncomment only if the default does not work.
         # - --apiserver-host=http://my-address:port
+        env:
+          - name: GEVENT_RESOLVER
+            value: ares
         livenessProbe:
           httpGet:
             path: /healthz
@@ -41,10 +44,10 @@ spec:
           mountPath: /etc/k8s-secret-volume
         resources:
           requests:
-            memory: "128Mi"
+            memory: "512Mi"
             cpu: "250m"
           limits:
-            memory: "512Mi"
+            memory: "768Mi"
             cpu: "750m"
       - name: kae-pods-watcher
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
