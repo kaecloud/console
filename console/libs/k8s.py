@@ -703,7 +703,7 @@ class ClientApiBundle(object):
         https_only = svc.httpsOnly
         if https_only is False:
             annotations_key = "{}/ssl-redirect".format(INGRESS_ANNOTATIONS_PREFIX)
-            obj.metadata.annotations[annotations_key] = https_only
+            obj.metadata.annotations[annotations_key] = "true" if https_only else "false"
         # parse mountpoints' host and path
         tls_list = []
         mp_cfg = {}
