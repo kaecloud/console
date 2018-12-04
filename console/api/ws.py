@@ -80,14 +80,13 @@ def get_app_pods_events(socket, appname):
                     if socket.receive() is None:
                         break
 
-                resp = pubsub.parse_response(block=False, timeout=30)
+                resp = pubsub.get_message(timeout=30)
                 if resp is None:
                     continue
 
-                item = pubsub.handle_message(resp)
-                if item['type'] == 'message':
-                    raw_content = item['data']
-                    # omit the initial message where item['data'] is 1L
+                if resp['type'] == 'message':
+                    raw_content = resp['data']
+                    # omit the initial message where resp['data'] is 1L
                     if not isinstance(raw_content, (bytes, str)):
                         continue
                     content = raw_content
@@ -174,29 +173,32 @@ def build_app(socket, appname):
     # don't allow multiple build tasks for single app
     lock_name = "__app_lock_{}_build_aaa".format(appname)
     lck = redis_lock.Lock(rds, lock_name, expire=30, auto_renewal=True)
-    if lck.acquire(blocking=block):
-        try:
-            for msg in build_image_helper(appname, release):
-                socket.send(json.dumps(msg, cls=VersatileEncoder))
-            # async_result = build_image.delay(appname, tag)
-            # for m in celery_task_stream_response(async_result.task_id):
-            #     try:
-            #         socket.send(m)
-            #     except WebSocketError as e:
-            #         # when client is disconnected, we shutdown the build task
-            #         # TODO: maybe need to wait task to exit.
-            #         async_result.revoke(terminate=True)
-            #         logger.warn("Can't send build msg to client: {}".format(str(e)))
-            #         break
-
-        except BuildError as e:
-            socket.send(json.dumps(e.data, cls=VersatileEncoder))
-        except Exception as e:
-            socket.send(make_errmsg("error when build app {}: {}".format(appname, str(e)), jsonize=True))
-        finally:
-            lck.release()
-    else:
-        socket.send(make_errmsg("there seems exist another build task and you set block to {}".format(block), jsonize=True))
+    try:
+        if lck.acquire(blocking=block):
+            try:
+                async_result = build_image.delay(appname, tag)
+                for m in celery_task_stream_response(async_result.task_id, 600):
+                    # after 10 minutes, we still can't get output message, so we exit the build task
+                    try:
+                        if m is None:
+                            async_result.revoke(terminate=True)
+                            socket.send(make_errmsg("doesn't receive any messages in last 10 minutes, build task for app {} seems to be stuck".format(appname), jsonize=True))
+                            break
+                        socket.send(m)
+                    except WebSocketError as e:
+                        # when client is disconnected, we shutdown the build task
+                        # TODO: maybe need to wait task to exit.
+                        async_result.revoke(terminate=True)
+                        logger.warn("Can't send build msg to client: {}".format(str(e)))
+                        break
+            except Exception as e:
+                socket.send(make_errmsg("error when build app {}: {}".format(appname, str(e)), jsonize=True))
+            finally:
+                lck.release()
+        else:
+            socket.send(make_errmsg("there seems exist another build task and you set block to {}".format(block), jsonize=True))
+    except WebSocketError as e:
+        logger.warn("can't send pod event msg to client: {}".format(str(e)))
 
 
 @ws.route('/job/<jobname>/log/events')
@@ -235,4 +237,3 @@ def get_job_log_events(socket, jobname):
     except Exception as e:
         logger.exception("error when get job({}) or job logs".format(jobname))
         socket.send(json.dumps({"error": "internal error when get job log, please contact administrator"}))
-

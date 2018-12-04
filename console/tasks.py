@@ -90,7 +90,7 @@ def save_pod_log(jobname, podname, version=0):
         logger.exception("Error when get pod log")
 
 
-def celery_task_stream_response(celery_task_ids):
+def celery_task_stream_response(celery_task_ids, timeout=0, exit_when_timeout=True):
     if isinstance(celery_task_ids, str):
         celery_task_ids = celery_task_ids,
 
@@ -98,9 +98,13 @@ def celery_task_stream_response(celery_task_ids):
     pubsub = rds.pubsub()
     pubsub.subscribe(task_progress_channels)
     try:
-        for item in pubsub.listen():
-            # each content is a single JSON encoded grpc message
-            raw_content = item['data']
+        while True:
+            resp = pubsub.get_message(timeout=timeout)
+            if resp is None:
+                if exit_when_timeout:
+                    return None
+                continue
+            raw_content = resp['data']
             # omit the initial message where item['data'] is 1L
             if not isinstance(raw_content, (bytes, str)):
                 continue
