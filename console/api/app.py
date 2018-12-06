@@ -898,7 +898,7 @@ def list_app_yaml(appname):
 @bp.route('/<appname>/yaml', methods=['POST'])
 @use_args(AppYamlArgsSchema())
 @user_require(False)
-def create_or_update_app_yaml(args, appname):
+def create_app_yaml(args, appname):
     """
     Create or Update app yaml
     ---
@@ -926,9 +926,42 @@ def create_or_update_app_yaml(args, appname):
     if not app_yaml:
         AppYaml.create(name, app, specs_text, comment)
     else:
-        if (not comment) and app_yaml.comment:
-            comment = app_yaml.comment
-        app_yaml.update(specs_text=specs_text, comment=comment)
+        abort(409, "app yaml already exist")
+    return DEFAULT_RETURN_VALUE
+
+
+@bp.route('/<appname>/name/<name>/yaml', methods=['POST'])
+@use_args(AppYamlArgsSchema())
+@user_require(False)
+def update_app_yaml(args, appname, name):
+    """
+    Delete app yaml
+    ---
+    """
+    new_name = args['name']
+    specs_text = args['specs_text']
+    comment = args.get('comment', '')
+    print("++++++++", name, appname, new_name)
+    # check the format of specs
+    try:
+        yaml_dict = yaml.load(specs_text)
+    except yaml.YAMLError as e:
+        return abort(400, 'specs text is invalid yaml {}'.format(str(e)))
+    try:
+        specs = app_specs_schema.load(yaml_dict).data
+        # at this place, we just use fix_app_spec to check if the default values in spec are correct
+        # we don't change the spec text, because AppYaml is independent with any release.
+        fix_app_spec(specs, appname, 'v0.0.1')
+    except ValidationError as e:
+        return abort(400, 'specs text is invalid {}'.format(str(e)))
+
+    app = get_app_raw(appname)
+    app_yaml = AppYaml.get_by_app_and_name(app, name)
+    if not app_yaml:
+        abort(404, "AppYaml(app: {}, name:{}) not found".format(appname, name))
+    if (not comment) and app_yaml.comment:
+        comment = app_yaml.comment
+    app_yaml.update(name=new_name, comment=comment, specs_text=specs_text)
     return DEFAULT_RETURN_VALUE
 
 
