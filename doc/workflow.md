@@ -16,7 +16,7 @@ KAE的一大目标就是和gitlab和gitlab ci集成，这需要一些配置
 
     build:
       stage: build
-      image: yuyang0/kae-cli:v0.0.1-alpha4
+      image: yuyang0/kae-cli:latest
       script:
         # Compile and name the binary as `hello`
         - kae app:register --force
