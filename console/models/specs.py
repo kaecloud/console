@@ -167,6 +167,8 @@ class SecretSchema(StrictSchema):
 class VolumeMountSchema(StrictSchema):
     name = fields.Str(required=True)
     mountPath = fields.Str(required=True)
+    readOnly = fields.Bool(missing=False)
+    subPath = fields.Str(missing="")
 
 
 build_schema = BuildSchema()
