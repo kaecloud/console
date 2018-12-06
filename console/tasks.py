@@ -98,7 +98,7 @@ def celery_task_stream_response(celery_task_ids, timeout=0, exit_when_timeout=Tr
     pubsub = rds.pubsub()
     pubsub.subscribe(task_progress_channels)
     try:
-        while True:
+        while pubsub.subscribed:
             resp = pubsub.get_message(timeout=timeout)
             if resp is None:
                 if exit_when_timeout:
