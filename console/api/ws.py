@@ -82,8 +82,10 @@ def get_app_pods_events(socket, appname):
 
         def check_client_socket():
             nonlocal need_exit
-            if socket.receive() is None:
-                need_exit = True
+            while need_exit is False:
+                if socket.receive() is None:
+                    need_exit = True
+                    break
         try:
             gevent.spawn(check_client_socket)
 
