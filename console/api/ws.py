@@ -76,13 +76,16 @@ def get_app_pods_events(socket, appname):
 
         pubsub = rds.pubsub()
         pubsub.subscribe(channel)
-        try:
-            while True:
-                # check if the client has closed the connection
-                with gevent.Timeout(0.5, False):
-                    if socket.receive() is None:
-                        break
+        need_exit = False
 
+        def check_client_socket():
+            nonlocal need_exit
+            if socket.receive() is None:
+                need_exit = True
+        try:
+            gevent.spawn(check_client_socket)
+
+            while need_exit is False:
                 resp = pubsub.get_message(timeout=30)
                 if resp is None:
                     continue
@@ -105,6 +108,7 @@ def get_app_pods_events(socket, appname):
             # otherwise it will cause too many redis connections
             pubsub.unsubscribe()
             pubsub.close()
+            need_exit = True
     logger.info("ws connection closed")
 
 
