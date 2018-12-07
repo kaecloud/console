@@ -35,6 +35,8 @@ def get_app_pods_events(socket, appname):
     payload = None
     while True:
         message = socket.receive()
+        if message is None:
+            return
         try:
             payload = cluster_canary_schema.loads(message)
             break
@@ -149,6 +151,8 @@ def build_app(socket, appname):
     payload = None
     while True:
         message = socket.receive()
+        if message is None:
+            return
         try:
             payload = build_args_schema.loads(message)
             break
@@ -311,4 +315,3 @@ def enter_pod(socket, appname):
             continue
     finally:
         need_exit = True
-

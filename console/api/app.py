@@ -964,7 +964,6 @@ def update_app_yaml(args, appname, name):
     new_name = args['name']
     specs_text = args['specs_text']
     comment = args.get('comment', '')
-    print("++++++++", name, appname, new_name)
     # check the format of specs
     try:
         yaml_dict = yaml.load(specs_text)
