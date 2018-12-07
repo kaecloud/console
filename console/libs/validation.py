@@ -258,6 +258,11 @@ class ClusterCanarySchema(StrictSchema):
     canary = fields.Bool(missing=False)
 
 
+class PodLogArgsSchema(StrictSchema):
+    cluster = fields.Str(required=True, validate=validate_cluster_name)
+    container = fields.Str()
+
+
 class ABTestingSchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
     rules = fields.Dict(required=True, validate=validate_abtesting_rules)

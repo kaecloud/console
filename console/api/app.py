@@ -13,7 +13,7 @@ from webargs.flaskparser import use_args
 from console.libs.validation import (
     RegisterSchema, UserSchema, RollbackSchema, SecretArgsSchema, ConfigMapArgsSchema,
     ScaleSchema, DeploySchema, ClusterArgSchema, ABTestingSchema,
-    ClusterCanarySchema, SpecsArgsSchema, AppYamlArgsSchema, PaginationSchema
+    ClusterCanarySchema, SpecsArgsSchema, AppYamlArgsSchema, PaginationSchema, PodLogArgsSchema
 )
 from console.libs.utils import logger, make_canary_appname, bearychat_sendmsg
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
@@ -460,6 +460,29 @@ def revoke_user(args, appname):
 
     app.revoke_user(user)
     return DEFAULT_RETURN_VALUE
+
+
+@bp.route('/<appname>/pod/<podname>/log')
+@use_args(PodLogArgsSchema())
+@user_require(False)
+def get_app_pod_log(args, appname, podname):
+    """
+    Get pod log
+    """
+    cluster = args['cluster']
+    container = args.get('container', None)
+    get_app_raw(appname)
+    ns = DEFAULT_APP_NS
+
+    kwargs = {
+        'namespace': ns,
+        'cluster_name': cluster,
+    }
+    if container:
+        kwargs['container'] = container
+    with handle_k8s_error("Error when get app pods ({})".format(appname)):
+        data = kube_api.get_pod_log(podname, **kwargs)
+        return {'data': data}
 
 
 @bp.route('/<appname>/pods')
