@@ -5,12 +5,15 @@ from json.decoder import JSONDecodeError
 from marshmallow import ValidationError
 import gevent
 from geventwebsocket.exceptions import WebSocketError
+from urllib3.exceptions import ProtocolError
 import redis_lock
 
 from console.libs.utils import logger, make_app_watcher_channel_name, make_errmsg, build_image_helper, BuildError
 from console.libs.jsonutils import VersatileEncoder
 from console.libs.k8s import kube_api, ApiException
-from console.libs.validation import build_args_schema, cluster_args_schema, cluster_canary_schema
+from console.libs.validation import (
+    build_args_schema, cluster_args_schema, cluster_canary_schema, pod_entry_schema
+)
 from console.libs.view import create_api_blueprint, user_require
 from console.models import App, Job
 from console.tasks import celery_task_stream_response, build_image
@@ -237,3 +240,71 @@ def get_job_log_events(socket, jobname):
     except Exception as e:
         logger.exception("error when get job({}) or job logs".format(jobname))
         socket.send(json.dumps({"error": "internal error when get job log, please contact administrator"}))
+
+
+@ws.route('/app/<appname>/entry')
+@user_require(False)
+def enter_pod(socket, appname):
+    payload = None
+    while True:
+        message = socket.receive()
+        if message is None:
+            return
+        try:
+            payload = pod_entry_schema.loads(message)
+            break
+        except ValidationError as e:
+            socket.send(json.dumps(e.messages))
+        except JSONDecodeError as e:
+            socket.send(json.dumps({'error': str(e)}))
+        except Exception as e:
+            logger.exception("Failed to receive payload")
+            socket.send(json.dumps({'error': 'internal error, pls contact administrator'}))
+
+    app = App.get_by_name(appname)
+    if not app:
+        socket.send(make_errmsg('app {} not found'.format(appname), jsonize=True))
+        return
+
+    if not g.user.granted_to_app(app):
+        socket.send(make_errmsg('You\'re not granted to this app, ask administrators for permission', jsonize=True))
+        return
+
+    args = payload.data
+    podname = args['podname']
+    cluster = args['cluster']
+    namespace = args['namespace']
+    container = args.get('container', None)
+    sh = kube_api.exec_shell(podname, namespace=namespace, cluster_name=cluster, container=container)
+    need_exit = False
+
+    def resp_sender():
+        nonlocal need_exit
+        try:
+            while need_exit is False:
+                sh.update(timeout=1)
+                if sh.peek_stdout():
+                    msg = sh.read_stdout()
+                    logger.debug("STDOUT: %s" % msg)
+                    socket.send(msg)
+                if sh.peek_stderr():
+                    msg = sh.read_stderr()
+                    logger.debug("STDERR: %s" % msg)
+                    socket.send(msg)
+        except ProtocolError:
+            need_exit = True
+            logger.warn('kubernetes disconnect client after default 10m...')
+        logger.info("exec output sender greenlet exit")
+    gevent.spawn(resp_sender)
+    try:
+        while need_exit is False:
+            # get command from client
+            message = socket.receive()
+            if message is None:
+                logger.info("client socket closed")
+                break
+            sh.write_stdin(message)
+            continue
+    finally:
+        need_exit = True
+

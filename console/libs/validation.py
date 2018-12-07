@@ -317,6 +317,13 @@ class JobArgsSchema(StrictSchema):
                     raise ValidationError("{} is required when specs_text is null".format(field))
 
 
+class PodEntryArgsSchema(StrictSchema):
+    podname = fields.Str(required=True)
+    cluster = fields.Str(required=True)
+    namespace = fields.Str(required=True)
+    container = fields.Str()
+
+
 cluster_args_schema = ClusterArgSchema()
 cluster_canary_schema = ClusterCanarySchema()
 register_schema = RegisterSchema()
@@ -326,3 +333,4 @@ build_args_schema = BuildArgsSchema()
 secret_schema = SecretArgsSchema()
 config_map_schema = ConfigMapArgsSchema()
 page_args_schema = PaginationSchema()
+pod_entry_schema = PodEntryArgsSchema()

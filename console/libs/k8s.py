@@ -8,6 +8,7 @@ import copy
 from addict import Dict
 from kubernetes import client, config, watch
 from kubernetes.watch.watch import iter_resp_lines
+from kubernetes.stream import stream
 
 from kubernetes.client.rest import ApiException
 
@@ -150,6 +151,21 @@ class ClientApiBundle(object):
             label_selector = "kae=true"
         w = watch.Watch()
         return w.stream(self.core_v1api.list_pod_for_all_namespaces, label_selector=label_selector, **kwargs)
+
+    def exec_shell(self, podname, namespace='default', container=None):
+        exec_command = ['/bin/sh']
+        kwargs = {
+            "command": exec_command,
+            "stderr": True,
+            "stdin": True,
+            "stdout": True,
+            "tty": True,
+            "_preload_content": False,
+        }
+        if container:
+            kwargs['container'] = container
+        resp = stream(self.core_v1api.connect_get_namespaced_pod_exec, podname, namespace, **kwargs)
+        return resp
 
     def create_or_update_config_map(self, appname, cm_data, replace=True, namespace="default"):
         """
