@@ -12,7 +12,7 @@ from webargs.flaskparser import use_args
 
 from console.libs.validation import (
     RegisterSchema, UserSchema, RollbackSchema, SecretArgsSchema, ConfigMapArgsSchema,
-    ScaleSchema, DeploySchema, ClusterArgSchema, ABTestingSchema,
+    ScaleSchema, DeploySchema, ClusterArgSchema, OptionalClusterArgSchema, ABTestingSchema,
     ClusterCanarySchema, SpecsArgsSchema, AppYamlArgsSchema, PaginationSchema, PodLogArgsSchema
 )
 from console.libs.utils import logger, make_canary_appname, bearychat_sendmsg
@@ -323,12 +323,10 @@ def delete_app(appname):
     tag = app.latest_release.tag if app.latest_release else ""
 
     ns = DEFAULT_APP_NS
-    # canary_info = _get_canary_info(appname, cluster)
-    # if canary_info['status']:
-    #     abort(403, "Please delete canary release first")
+
     with lock_app(appname):
         with handle_k8s_error("Error when delete app {}".format(appname)):
-            kube_api.delete_app(appname, app.type, ignore_404=True, cluster_name=kube_api.ALL_CLUSTER, namespace=ns)
+            kube_api.undeploy_app(appname, app.type, ignore_404=True, cluster_name=kube_api.ALL_CLUSTER, namespace=ns)
     app.delete()
 
     OPLog.create(
@@ -523,7 +521,7 @@ def get_app_pods(args, appname):
 @bp.route('/<appname>/deployment')
 @use_args(ClusterCanarySchema())
 @user_require(False)
-def get_app_deployment(args, appname):
+def get_app_k8s_deployment(args, appname):
     """
     Get kubernetes deployment object of the specified app
     ---
@@ -1227,7 +1225,7 @@ def scale_app(args, appname):
 @user_require(False)
 def deploy_app(args, appname):
     """
-    deployment app to kubernetes
+    deploy app to kubernetes
     ---
     definitions:
       DeployArgs:
@@ -1373,12 +1371,56 @@ def deploy_app(args, appname):
         return DEFAULT_RETURN_VALUE
 
 
+@bp.route('/<appname>/undeploy', methods=['DELETE'])
+@use_args(OptionalClusterArgSchema())
+@user_require(True)
+def undeploy_app(args, appname):
+    """
+    if cluster is specified, then delete the deployment in specified cluster.
+    if cluster is not specified, then delete deployment in all cluster.
+    ---
+    parameters:
+      - name: appname
+        in: path
+        type: string
+        required: true
+    responses:
+      200:
+        description: error message
+        schema:
+          $ref: '#/definitions/Error'
+        examples:
+          application/json:
+            error: null
+    """
+    cluster = args.get('cluster', kube_api.ALL_CLUSTER)
+    app = get_app_raw(appname)
+    tag = app.latest_release.tag if app.latest_release else ""
+
+    ns = DEFAULT_APP_NS
+    with lock_app(appname):
+        with handle_k8s_error("Error when undploy app {}".format(appname)):
+            kube_api.undeploy_app(appname, app.type, ignore_404=True, cluster_name=cluster, namespace=ns)
+            OPLog.create(
+                user_id=g.user.id,
+                app_id=app.id,
+                appname=appname,
+                tag=tag,
+                cluster=cluster,
+                action=OPType.UNDEPLOY_APP,
+            )
+
+    msg = 'Warning: App **{}**\'s deployment in cluster **{}** has been deleted by **{}**.'.format(appname, cluster, g.user.nickname)
+    bearychat_sendmsg('platform', msg)
+    return DEFAULT_RETURN_VALUE
+
+
 @bp.route('/<appname>/canary/deploy', methods=['PUT'])
 @use_args(DeploySchema())
 @user_require(False)
 def deploy_app_canary(args, appname):
     """
-    deployment app to kubernetes
+    deploy app canary version to kubernetes
     ---
     definitions:
       DeployArgs:
@@ -1513,7 +1555,7 @@ def deploy_app_canary(args, appname):
 @bp.route('/<appname>/canary', methods=['DELETE'])
 @use_args(ClusterArgSchema())
 @user_require(False)
-def delete_app_canary(args, appname):
+def undeploy_app_canary(args, appname):
     """
     delete app canary release in kubernetes
     ---
@@ -1535,7 +1577,7 @@ def delete_app_canary(args, appname):
             abort(403, 'You\'re not granted to this app, ask administrators for permission')
 
         with handle_k8s_error("Error when delete app canary {}".format(appname)):
-            kube_api.delete_app_canary(appname, cluster_name=cluster, ignore_404=True, namespace=ns)
+            kube_api.undeploy_app_canary(appname, cluster_name=cluster, ignore_404=True, namespace=ns)
 
         OPLog.create(
             user_id=g.user.id,
@@ -1543,7 +1585,7 @@ def delete_app_canary(args, appname):
             appname=appname,
             cluster=cluster,
             # tag=release.tag,
-            action=OPType.DEPLOY_APP_CANARY,
+            action=OPType.UNDEPLOY_APP_CANARY,
         )
         return DEFAULT_RETURN_VALUE
 

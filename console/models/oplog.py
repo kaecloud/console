@@ -16,8 +16,9 @@ class OPType(enum.Enum):
     REGISTER_RELEASE = 'register_release'
     UPDATE_RELEASE = 'update_release'
     DEPLOY_APP = "deploy_app"
+    UNDEPLOY_APP = "undeploy_app"
     DEPLOY_APP_CANARY = "deploy_app_canary"
-    DELETE_APP_CANARY = "delete_app_canary"
+    UNDEPLOY_APP_CANARY = "undeploy_app_canary"
     UPGRADE_APP = "upgrade_app"
     SCALE_APP = "scale_app"
     DELETE_APP = "delete_app"

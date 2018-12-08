@@ -361,17 +361,23 @@ class ClientApiBundle(object):
         full_rules = json.loads(full_rules_str)
         return full_rules.get("rules", None)
 
-    def delete_app_canary(self, appname, namespace="default", ignore_404=False):
+    def undeploy_app_canary(self, appname, namespace="default", ignore_404=False):
         canary_appname = make_canary_appname(appname)
         annotations_key = "{}/abtesting".format(INGRESS_ANNOTATIONS_PREFIX)
-        ing = self.extensions_api.read_namespaced_ingress(appname, namespace=namespace)
+        # remove abtesting rules
+        try:
+            ing = self.extensions_api.read_namespaced_ingress(appname, namespace=namespace)
 
-        annotations = ing.metadata.annotations if ing.metadata.annotations else {}
-        if annotations_key in annotations:
-            ing.metadata.annotations.pop(annotations_key)
-            self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=namespace)
-            # the nginx-ingress needs about 1 seconds to detect the change of the ingress
-            time.sleep(1)
+            annotations = ing.metadata.annotations if ing.metadata.annotations else {}
+            if annotations_key in annotations:
+                ing.metadata.annotations.pop(annotations_key)
+                self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=namespace)
+                # the nginx-ingress needs about 1 seconds to detect the change of the ingress
+                time.sleep(1)
+        except ApiException as e:
+            if not (e.status == 404 and ignore_404 is True):
+                raise e
+        # remove sevice
         try:
             self.core_v1api.delete_namespaced_service(
                 name=canary_appname, namespace=namespace,
@@ -380,6 +386,7 @@ class ClientApiBundle(object):
         except ApiException as e:
             if not (e.status == 404 and ignore_404 is True):
                 raise e
+        # remove deployment
         try:
             self.extensions_api.delete_namespaced_deployment(
                 name=canary_appname, namespace=namespace,
@@ -409,7 +416,9 @@ class ClientApiBundle(object):
         )
         self.extensions_api.create_namespaced_deployment_rollback(name=appname, namespace=namespace, body=rollback)
 
-    def delete_app(self, appname, apptype, namespace='default', ignore_404=False):
+    def undeploy_app(self, appname, apptype, namespace='default', ignore_404=False):
+        self.undeploy_app_canary(appname, namespace=namespace, ignore_404=True)
+
         # delete resource in the following order: ingress, service, deployment, secret, configmap
         if apptype == "web":
             try:

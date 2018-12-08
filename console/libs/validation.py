@@ -249,6 +249,10 @@ class ClusterArgSchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
 
 
+class OptionalClusterArgSchema(StrictSchema):
+    cluster = fields.Str(validate=validate_cluster_name)
+
+
 class SpecsArgsSchema(StrictSchema):
     specs_text = fields.Str(required=True)
 
