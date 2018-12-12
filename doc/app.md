@@ -15,7 +15,7 @@ builds:                             # spec for building image
 
 service:
   user: root                # default: root
-  registry: xxxx            # specify diffirent registry name
+  registry: xxxx            # specify different registry name
   labels:                   # labels of the container
     - proctype=router
 
@@ -52,13 +52,18 @@ service:
       - ENVA=a
       - ENVB=b
     tty: false               # whether allocate tty
-    workingDir: xxx          # working dir
+    workingDir: xxx          
+    gpu: 1                   # optional, only integer is allowed
     cpu:                     # cpu resource, example value: 1, 0.1, 100m
-      request: xxx
-      limit: xxx             # default is 200m
+                             # if cpu isn't specified, then request is 100m
+                             # and limit is 200m
+      request: xxx           
+      limit: xxx            
     memory:                  # memory resource, example value: 1, 1G, 1M, 1K, 1Gi, 1Mi, 1Ki
+                             # if memory isn't specified, then request is 64Mi
+                             # and limit is 128Mi
       request: xxx
-      limit: xxx             # default is 64M
+      limit: xxx             
 
     ports:
       - containerPort: 9506

@@ -198,10 +198,10 @@ class ContainerSpec(StrictSchema):
     @post_load
     def add_defaults(self, data):
         if "cpu" not in data:
-            cpu = {"limit": "200m"}
+            cpu = {"request": "100m", "limit": "200m"}
             data['cpu'] = cpu
         if "memory" not in data:
-            memory = {"limit": "64M"}
+            memory = {"request": "64Mi", "limit": "128Mi"}
             data["memory"] = memory
         return data
 
