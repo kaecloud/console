@@ -195,6 +195,16 @@ class ContainerSpec(StrictSchema):
     secrets = fields.Nested(SecretSchema)
     volumeMounts = fields.List(fields.Nested(VolumeMountSchema), missing=[])
 
+    @post_load
+    def add_defaults(self, data):
+        if "cpu" not in data:
+            cpu = {"limit": "200m"}
+            data['cpu'] = cpu
+        if "memory" not in data:
+            memory = {"limit": "64M"}
+            data["memory"] = memory
+        return data
+
 
 class ServicePort(StrictSchema):
     port = fields.Int(required=True, validate=validate_port)

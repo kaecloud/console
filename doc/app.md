@@ -53,12 +53,12 @@ service:
       - ENVB=b
     tty: false               # whether allocate tty
     workingDir: xxx          # working dir
-    cpu:
+    cpu:                     # cpu resource, example value: 1, 0.1, 100m
       request: xxx
-      limit: xxx
-    memory:
+      limit: xxx             # default is 200m
+    memory:                  # memory resource, example value: 1, 1G, 1M, 1K, 1Gi, 1Mi, 1Ki
       request: xxx
-      limit: xxx
+      limit: xxx             # default is 64M
 
     ports:
       - containerPort: 9506
