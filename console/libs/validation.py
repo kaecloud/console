@@ -188,6 +188,12 @@ class RegisterSchema(StrictSchema):
     force = fields.Bool(missing=False)
 
 
+class CreateAppArgsSchema(StrictSchema):
+    appname = fields.Str(required=True)
+    git = fields.Str(required=True)
+    type = fields.Str(required=True)
+
+
 def parse_memory(s):
     if isinstance(s, Number):
         return int(s)
