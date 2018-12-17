@@ -1,0 +1,47 @@
+kind: Deployment
+apiVersion: extensions/v1beta1
+metadata:
+  labels:
+    app: kae-pods-watcher
+  name: kae-pods-watcher
+  namespace: kae
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      k8s-app: kae-pods-watcher
+  template:
+    metadata:
+      labels:
+        k8s-app: kae-pods-watcher
+    spec:
+      containers:
+        - name: kae-pods-watcher
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ['sh', 'bin/run-pods-watcher']
+          args:
+          # Uncomment the following line to manually specify Kubernetes API server Host
+          # If not specified, Dashboard will attempt to auto discover the API server and connect
+          # to it. Uncomment only if the default does not work.
+          # - --apiserver-host=http://my-address:port
+          volumeMounts:
+            - name: kae-console-secret-vol
+              mountPath: /etc/k8s-secret-volume
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "750m"
+      volumes:
+        - name: kae-console-secret-vol
+          secret:
+            secretName: kae-console
+      serviceAccountName: kae-console-serviceaccount
+      # Comment the following tolerations if console must not be deployed on master
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          effect: NoSchedule

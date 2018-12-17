@@ -49,27 +49,6 @@ spec:
           limits:
             memory: "768Mi"
             cpu: "750m"
-      - name: kae-pods-watcher
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-        imagePullPolicy: {{ .Values.image.pullPolicy }}
-        command: ['sh', 'bin/run-pods-watcher']
-        args:
-        # Uncomment the following line to manually specify Kubernetes API server Host
-        # If not specified, Dashboard will attempt to auto discover the API server and connect
-        # to it. Uncomment only if the default does not work.
-        # - --apiserver-host=http://my-address:port
-        volumeMounts:
-        - name: docker-sock-volume
-          mountPath: /var/run/docker.sock
-        - name: kae-console-secret-vol
-          mountPath: /etc/k8s-secret-volume
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "250m"
-          limits:
-            memory: "512Mi"
-            cpu: "750m"
       volumes:
       - name: docker-sock-volume
         hostPath:
