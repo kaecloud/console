@@ -1,4 +1,5 @@
 import json
+from functools import wraps
 import contextlib
 from flask import session, g
 from json.decoder import JSONDecodeError
@@ -29,8 +30,19 @@ def session_removed():
     yield
 
 
+def ignore_socket_dead(f):
+    @wraps(f)
+    def _inner(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except WebSocketError as e:
+            logger.warn("send failed: {}".format(str(e)))
+    return _inner
+
+
 @ws.route('/app/<appname>/pods/events')
 @user_require(False)
+@ignore_socket_dead
 def get_app_pods_events(socket, appname):
     payload = None
     while True:
@@ -44,9 +56,6 @@ def get_app_pods_events(socket, appname):
             socket.send(json.dumps(e.messages))
         except JSONDecodeError as e:
             socket.send(json.dumps({'error': str(e)}))
-        except Exception as e:
-            logger.exception("Failed to receive payload")
-            socket.send(json.dumps({'error': 'internal error, pls contact administrator'}))
 
     args = payload.data
     cluster = args['cluster']
@@ -102,11 +111,7 @@ def get_app_pods_events(socket, appname):
                     content = raw_content
                     if isinstance(content, bytes):
                         content = content.decode('utf-8')
-                    try:
-                        socket.send(content)
-                    except WebSocketError as e:
-                        logger.warn("can't send pod event msg to client: {}".format(str(e)))
-                        break
+                    socket.send(content)
         finally:
             # need close the connection created by PUB/SUB,
             # otherwise it will cause too many redis connections
@@ -118,6 +123,7 @@ def get_app_pods_events(socket, appname):
 
 @ws.route('/app/<appname>/build')
 @user_require(False)
+@ignore_socket_dead
 def build_app(socket, appname):
     """Build an image for the specified release.
     ---
@@ -162,9 +168,6 @@ def build_app(socket, appname):
             socket.send(json.dumps(e.messages))
         except JSONDecodeError as e:
             socket.send(json.dumps({'error': str(e)}))
-        except Exception as e:
-            logger.exception("Failed to receive build args payload")
-            socket.send(json.dumps({'error': 'internal error, pls contact administrator'}))
 
     args = payload.data
     tag = args["tag"]
@@ -186,36 +189,34 @@ def build_app(socket, appname):
     # don't allow multiple build tasks for single app
     lock_name = "__app_lock_{}_build_aaa".format(appname)
     lck = redis_lock.Lock(rds, lock_name, expire=30, auto_renewal=True)
-    try:
-        if lck.acquire(blocking=block):
-            try:
-                async_result = build_image.delay(appname, tag)
-                for m in celery_task_stream_response(async_result.task_id, 600):
-                    # after 10 minutes, we still can't get output message, so we exit the build task
-                    try:
-                        if m is None:
-                            async_result.revoke(terminate=True)
-                            socket.send(make_errmsg("doesn't receive any messages in last 10 minutes, build task for app {} seems to be stuck".format(appname), jsonize=True))
-                            break
-                        socket.send(m)
-                    except WebSocketError as e:
-                        # when client is disconnected, we shutdown the build task
-                        # TODO: maybe need to wait task to exit.
+    if lck.acquire(blocking=block):
+        try:
+            async_result = build_image.delay(appname, tag)
+            for m in celery_task_stream_response(async_result.task_id, 600):
+                # after 10 minutes, we still can't get output message, so we exit the build task
+                try:
+                    if m is None:
                         async_result.revoke(terminate=True)
-                        logger.warn("Can't send build msg to client: {}".format(str(e)))
+                        socket.send(make_errmsg("doesn't receive any messages in last 10 minutes, build task for app {} seems to be stuck".format(appname), jsonize=True))
                         break
-            except Exception as e:
-                socket.send(make_errmsg("error when build app {}: {}".format(appname, str(e)), jsonize=True))
-            finally:
-                lck.release()
-        else:
-            socket.send(make_errmsg("there seems exist another build task and you set block to {}".format(block), jsonize=True))
-    except WebSocketError as e:
-        logger.warn("can't send pod event msg to client: {}".format(str(e)))
+                    socket.send(m)
+                except WebSocketError as e:
+                    # when client is disconnected, we shutdown the build task
+                    # TODO: maybe need to wait task to exit.
+                    async_result.revoke(terminate=True)
+                    logger.warn("Can't send build msg to client: {}".format(str(e)))
+                    break
+        except Exception as e:
+            socket.send(make_errmsg("error when build app {}: {}".format(appname, str(e)), jsonize=True))
+        finally:
+            lck.release()
+    else:
+        socket.send(make_errmsg("there seems exist another build task and you set block to {}".format(block), jsonize=True))
 
 
 @ws.route('/job/<jobname>/log/events')
 @user_require(False)
+@ignore_socket_dead
 def get_job_log_events(socket, jobname):
     """
     SSE endpoint fo job log
@@ -238,22 +239,16 @@ def get_job_log_events(socket, jobname):
             if pods.items:
                 podname = pods.items[0].metadata.name
                 for line in kube_api.follow_pod_log(podname=podname, namespace=ns):
-                    try:
-                        socket.send(json.dumps({'data': line}))
-                    except WebSocketError as e:
-                        logger.warn("Can't send job log msg to client: {}".format(str(e)))
-                        break
+                    socket.send(json.dumps({'data': line}))
             else:
                 socket.send(json.dumps({"error": "no log, please retry"}))
     except ApiException as e:
         socket.send(json.dumps({"error": "Error when create job: {}".format(str(e))}))
-    except Exception as e:
-        logger.exception("error when get job({}) or job logs".format(jobname))
-        socket.send(json.dumps({"error": "internal error when get job log, please contact administrator"}))
 
 
 @ws.route('/app/<appname>/entry')
 @user_require(False)
+@ignore_socket_dead
 def enter_pod(socket, appname):
     payload = None
     while True:
@@ -267,9 +262,6 @@ def enter_pod(socket, appname):
             socket.send(json.dumps(e.messages))
         except JSONDecodeError as e:
             socket.send(json.dumps({'error': str(e)}))
-        except Exception as e:
-            logger.exception("Failed to receive payload")
-            socket.send(json.dumps({'error': 'internal error, pls contact administrator'}))
 
     app = App.get_by_name(appname)
     if not app:
@@ -302,8 +294,12 @@ def enter_pod(socket, appname):
                     logger.debug("STDERR: %s" % msg)
                     socket.send(msg)
         except ProtocolError:
-            need_exit = True
             logger.warn('kubernetes disconnect client after default 10m...')
+        except WebSocketError as e:
+            logger.warn('client socket is closed')
+        finally:
+            need_exit = True
+
         logger.info("exec output sender greenlet exit")
     gevent.spawn(resp_sender)
     try:
