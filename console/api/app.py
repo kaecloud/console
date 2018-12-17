@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from webargs.flaskparser import use_args
 
 from console.libs.validation import (
-    RegisterSchema, UserSchema, RollbackSchema, SecretArgsSchema, ConfigMapArgsSchema,
+    RegisterSchema, CreateAppArgsSchema, UserSchema, RollbackSchema, SecretArgsSchema, ConfigMapArgsSchema,
     ScaleSchema, DeploySchema, ClusterArgSchema, OptionalClusterArgSchema, ABTestingSchema,
     ClusterCanarySchema, SpecsArgsSchema, AppYamlArgsSchema, PaginationSchema, PodLogArgsSchema
 )
@@ -149,6 +149,45 @@ def list_app(args):
     limit = args['size']
     start = (args['page'] - 1) * limit
     return g.user.list_app(start, limit)
+
+
+@bp.route('/', methods=['POST'])
+@use_args(CreateAppArgsSchema())
+@user_require(False)
+def create_app(args):
+    """
+    create a app
+    ---
+    parameters:
+      - name: app_args
+        in: body
+        required: true
+        schema:
+          $ref: '#/definitions/App'
+    responses:
+      200:
+        description: app created
+        schema:
+          type: array
+          items:
+            $ref: '#/definitions/App'
+        examples:
+          application/json:
+          - id: 10001
+            created: "2018-03-21 14:54:06"
+            updated: "2018-03-21 14:54:07"
+            name: "test-app"
+            type: "web"
+            git: "git@github.com:kaecloud/console.git"
+    """
+    appname = args['appname']
+    git = args['git']
+    type = args['type']
+
+    app = App.get_or_create(appname, git, type)
+    if not app:
+        abort(400, 'Error during create an app (%s, %s, %s)' % (appname, git, type))
+    return app
 
 
 @bp.route('/<appname>')
