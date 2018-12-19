@@ -103,6 +103,14 @@ def validate_percentage_or_int(ss):
         raise ValidationError("invalid percentage or integer")
 
 
+def validate_str_dict(dd):
+    for k, v in dd.items():
+        if not isinstance(k, str):
+            raise ValidationError("key should be a string")
+        if not isinstance(v, str):
+            raise ValidationError("value should be a string")
+
+
 class Mountpoint(StrictSchema):
     host = fields.Str(required=True)
     path = fields.Str(missing="/")
@@ -216,6 +224,7 @@ class ServiceSchema(StrictSchema):
     user = fields.Str(missing="root")
     registry = fields.Str()
     labels = fields.List(fields.Str())
+    ingressAnnotations = fields.Dict(validate=validate_str_dict)
     httpsOnly = fields.Bool(missing=True)
     mountpoints = fields.List(fields.Nested(Mountpoint), validate=validate_mountpoints, missing=[])
     ports = fields.List(fields.Nested(ServicePort))

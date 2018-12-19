@@ -18,7 +18,8 @@ service:
   registry: xxxx            # specify different registry name
   labels:                   # labels of the container
     - proctype=router
-
+  ingressAnnotations:       # useful when you want to specify ingress nginx annotations
+    key1: val1
   httpsOnly: true
   mountpoints:                 # setup domain for app
   - host: hello.k8s.gtapp.xyz
