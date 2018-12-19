@@ -18,7 +18,7 @@ from console.config import (
     INGRESS_ANNOTATIONS_PREFIX,
 )
 
-from .utils import parse_image_name, id_generator, make_canary_appname
+from .utils import parse_image_name, id_generator, make_canary_appname, search_tls_secret
 
 
 class KubeError(Exception):
@@ -724,6 +724,10 @@ class ClientApiBundle(object):
             }
         })
 
+        # annotations
+        ingress_annotations = svc.get("ingressAnnotations", None)
+        if ingress_annotations:
+            obj.metadata.annotations = copy.deepcopy(ingress_annotations)
         # https only
         https_only = svc.httpsOnly
         if https_only is False:
@@ -734,29 +738,35 @@ class ClientApiBundle(object):
         mp_cfg = {}
         for mp in svc.mountpoints:
             mp_cfg[mp.host] = mp.paths
-            if mp.tlsSecret:
+            # if tlsSecret is specified, then use it, otherwise search from config
+            tls_secret = mp.tlsSecret
+            if not tls_secret:
+                tls_secret = search_tls_secret(mp.host)
+            if tls_secret:
                 ingress_tls = {
                     "hosts": [
                         mp.host,
                     ],
-                    "secretName": mp.tlsSecret,
+                    "secretName": tls_secret,
                 }
                 tls_list.append(ingress_tls)
 
-        cluster_domain_cfg = CLUSTER_BASE_DOMAIN_MAP.get(cluster, None)
-        if cluster_domain_cfg is not None:
-            default_domain = appname + '.' + cluster_domain_cfg['domain']
+        cluster_domain = CLUSTER_BASE_DOMAIN_MAP.get(cluster, None)
+        if cluster_domain is not None:
+            default_domain = appname + '.' + cluster_domain
             if default_domain not in mp_cfg:
                 mp_cfg[default_domain] = ['/']
 
-            # setup tls
-            ingress_tls = {
-                "hosts": [
-                    default_domain,
-                ],
-                "secretName": cluster_domain_cfg['tls_secret'],
-            }
-            tls_list.append(ingress_tls)
+                # setup tls
+                tls_secret = search_tls_secret(default_domain)
+                if tls_secret:
+                    ingress_tls = {
+                        "hosts": [
+                            default_domain,
+                        ],
+                        "secretName": tls_secret,
+                    }
+                    tls_list.append(ingress_tls)
 
         # empty mp_cfg will cause an empty rules in ingress object
         if len(mp_cfg) == 0:

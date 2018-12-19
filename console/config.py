@@ -63,14 +63,12 @@ REGISTRY_AUTHS = {
 
 # if you use incluster config, then the cluster name should be `incluster`.
 CLUSTER_BASE_DOMAIN_MAP = {
-    "cluster1": {
-        "domain": "xxxx",        # base domain, every app will get a host name `appname.basedoamin`
-        "tls_secret": "haha",    # name of the secret which contains the certification
-    },
-    "cluster2": {
-        "domain": "xxx",
-        "tls_secret": "xxxx",
-    }
+    "cluster1": "domain name",        # base domain, every app will get a host name `appname.basedoamin`
+    "cluster2": "domain name",
+}
+
+TLS_SECRET_MAP = {
+    "domain name": "tls secret name"
 }
 
 HOST_DATA_DIR = "/data/kae"
@@ -115,11 +113,9 @@ if REDIS_URL is None:
     raise ValueError("REDIS_URL can't be None")
 
 # validate CLUSTER_BASE_DOMAIN_MAP
-for _, cfg in CLUSTER_BASE_DOMAIN_MAP.items():
-    if 'domain' not in cfg:
-        raise ValueError("cluster domain config should contain `domain` field")
-    if 'tls_secret' not in cfg:
-        raise ValueError("cluster domain config should contain `tls_secret` field")
+for base_domain in CLUSTER_BASE_DOMAIN_MAP.values():
+    if base_domain not in TLS_SECRET_MAP:
+        raise ValueError("cluster base domain {} needs tls secret".format(base_domain))
 
 ##################################################
 # the config below must not use getenv

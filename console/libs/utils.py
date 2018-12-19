@@ -16,7 +16,7 @@ from functools import wraps
 
 from console.config import (
     BOT_WEBHOOK_URL, LOGGER_NAME, DEBUG, DEFAULT_REGISTRY, JOBS_LOG_ROOT_DIR,
-    REPO_DATA_DIR,
+    REPO_DATA_DIR, TLS_SECRET_MAP,
 )
 from console.libs.jsonutils import VersatileEncoder
 
@@ -173,6 +173,19 @@ def construct_full_image_name(name, appname):
 
 def make_canary_appname(appname):
     return "{}-canary".format(appname)
+
+
+def search_tls_secret(hostname):
+    if hostname in TLS_SECRET_MAP:
+        return TLS_SECRET_MAP[hostname]
+    else:
+        parts = hostname.split('.', 1)
+        if len(parts) < 2:
+            return None
+        parent = parts[1]
+        if parent in TLS_SECRET_MAP:
+            return TLS_SECRET_MAP[parent]
+    return None
 
 
 def get_job_log_versions(job_name):
