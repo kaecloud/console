@@ -1,4 +1,5 @@
 import json
+import html
 from functools import wraps
 import contextlib
 from flask import session, g
@@ -9,7 +10,10 @@ from geventwebsocket.exceptions import WebSocketError
 from urllib3.exceptions import ProtocolError
 import redis_lock
 
-from console.libs.utils import logger, make_app_watcher_channel_name, make_errmsg, build_image_helper, BuildError
+from console.libs.utils import (
+    logger, make_app_watcher_channel_name, make_errmsg, send_email,
+    build_image_helper, BuildError
+)
 from console.libs.jsonutils import VersatileEncoder
 from console.libs.k8s import kube_api, ApiException
 from console.libs.validation import (
@@ -157,6 +161,43 @@ def build_app(socket, appname):
           error: "xxx"
     """
     payload = None
+    total_msg= []
+
+    phase = None
+    def handle_msg(ss):
+        nonlocal phase
+        try:
+            m = json.loads(ss)
+        except:
+            return False
+        if m['success'] is False:
+            total_msg.append(m['error'])
+            return False
+        if phase != m['phase']:
+            phase = m['phase']
+            total_msg.append("***** PHASE {}".format(m['phase']))
+
+        raw_data = m.get('raw_data', None)
+        if raw_data is None:
+            raw_data = {}
+        if raw_data.get('error', None):
+            total_msg.append((str(raw_data)))
+            return False
+
+        if phase.lower() == "pushing":
+            if len(raw_data) == 1 and 'status' in raw_data:
+                total_msg.append(raw_data['status'])
+            elif 'id' in raw_data and 'status' in raw_data:
+                # TODO: make the output like docker push
+                total_msg.append("{}:{}".format(raw_data['id'], raw_data['status']))
+            elif 'digest' in raw_data:
+                total_msg.append("{}: digest: {} size: {}".format(raw_data.get('status'), raw_data['digest'], raw_data.get('size')))
+            else:
+                total_msg.append(str(m))
+        else:
+            total_msg.append(m['msg'])
+        return True
+
     while True:
         message = socket.receive()
         if message is None:
@@ -189,27 +230,49 @@ def build_app(socket, appname):
     # don't allow multiple build tasks for single app
     lock_name = "__app_lock_{}_build_aaa".format(appname)
     lck = redis_lock.Lock(rds, lock_name, expire=30, auto_renewal=True)
+    client_closed = False
     if lck.acquire(blocking=block):
         try:
             async_result = build_image.delay(appname, tag)
-            for m in celery_task_stream_response(async_result.task_id, 600):
+            for m in celery_task_stream_response(async_result.task_id, 900):
                 # after 10 minutes, we still can't get output message, so we exit the build task
                 try:
                     if m is None:
                         async_result.revoke(terminate=True)
-                        socket.send(make_errmsg("doesn't receive any messages in last 10 minutes, build task for app {} seems to be stuck".format(appname), jsonize=True))
+                        socket.send(make_errmsg("doesn't receive any messages in last 15 minutes, build task for app {} seems to be stuck".format(appname), jsonize=True))
                         break
-                    socket.send(m)
+                    if handle_msg(m) is False:
+                        break
+                    if client_closed is False:
+                        socket.send(m)
                 except WebSocketError as e:
                     # when client is disconnected, we shutdown the build task
                     # TODO: maybe need to wait task to exit.
-                    async_result.revoke(terminate=True)
+                    client_closed = True
                     logger.warn("Can't send build msg to client: {}".format(str(e)))
-                    break
         except Exception as e:
             socket.send(make_errmsg("error when build app {}: {}".format(appname, str(e)), jsonize=True))
         finally:
             lck.release()
+            # if client websocket is closed, we send an email to the user
+            if phase.lower() != "finished":
+                subject = "KAE: Failed to build {}:{}".format(appname, tag)
+                text_title = '<h2 style="color: #ff6161;"> Build Failed </h2>'
+                build_result_text = '<strong style="color:#ff6161;"> build terminates prematurely.</strong>'
+            else:
+                subject = 'KAE: build {}:{} successfully'.format(appname, tag)
+                text_title = '<h2 style="color: #00d600;"> Build Success </h2>'
+                build_result_text = '<strong style="color:#00d600; font-weight: 600">Build %s %s done.</strong>' % (appname, tag)
+            email_text_tpl = '''<div>
+  <div>{}</div>
+  <div style="background:#000; padding: 15px; color: #c4c4c4;">
+    <pre>{}</pre>
+  </div>
+</div>'''
+            email_text = email_text_tpl.format(text_title, html.escape("\n".join(total_msg)) + '\n' + build_result_text)
+            email_list = [u.email for u in app.users]
+            print("+++++", email_list, subject, email_text)
+            send_email(email_list, subject, email_text)
     else:
         socket.send(make_errmsg("there seems exist another build task and you set block to {}".format(block), jsonize=True))
 

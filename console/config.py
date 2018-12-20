@@ -29,6 +29,8 @@ CONTAINER_CONFIG_DIR = os.path.join(CONFIG_ROOT_DIR, "config")
 INGRESS_ANNOTATIONS_PREFIX = "nginx.ingress.kubernetes.io"
 APP_BUILD_TIMEOUT = 1800     # timeout for build image(30 minutes)
 
+EMAIL_SENDER = ""
+EMAIL_SENDER_PASSWOORD = ""
 # SERVER_NAME = getenv('SERVER_NAME', default='127.0.0.1')
 SENTRY_DSN = getenv('SENTRY_DSN', default='')
 SECRET_KEY = getenv('SECRET_KEY', default='testsecretkey')

@@ -27,7 +27,7 @@ class App(BaseModelMixin):
     git = db.Column(db.String(255), nullable=False)
     type = db.Column(db.CHAR(64), nullable=False)
     users = db.relationship('User', secondary=app_user_association,
-                            backref=db.backref('apps', lazy='dynamic'))
+                            backref=db.backref('apps', lazy='dynamic'), lazy='dynamic')
 
     def __str__(self):
         return self.name
@@ -48,12 +48,12 @@ class App(BaseModelMixin):
         return cls.query.filter_by(name=name).first()
 
     def grant_user(self, user):
-        if user.granted_to_app(self):
-            return
+        from console.models.user import User
 
-        self.users.append(user)
-        db.session.add(self)
-        db.session.commit()
+        if self.users.filter(User.id == user.id).first() is None:
+            self.users.append(user)
+            db.session.add(self)
+            db.session.commit()
 
     def revoke_user(self, user):
         self.users.remove(user)

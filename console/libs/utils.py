@@ -8,6 +8,13 @@ import random
 import shutil
 import logging
 import urllib.request
+import smtplib
+from smtplib import SMTPException
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.utils import COMMASPACE, formatdate
+from email.encoders import encode_base64
 from subprocess import Popen, PIPE, STDOUT, run, CalledProcessError
 
 import docker
@@ -16,7 +23,7 @@ from functools import wraps
 
 from console.config import (
     BOT_WEBHOOK_URL, LOGGER_NAME, DEBUG, DEFAULT_REGISTRY, JOBS_LOG_ROOT_DIR,
-    REPO_DATA_DIR, TLS_SECRET_MAP,
+    REPO_DATA_DIR, TLS_SECRET_MAP, EMAIL_SENDER, EMAIL_SENDER_PASSWOORD,
 )
 from console.libs.jsonutils import VersatileEncoder
 
@@ -81,6 +88,36 @@ def send_get_json_request(url, headers=None):
     res_body = res.read()
     data = json.loads(res_body.decode("utf8"))
     return res.getcode(), data
+
+
+def send_email(receivers, subject, text, sender=EMAIL_SENDER, password=EMAIL_SENDER_PASSWOORD,
+               files=None, server="smtp.exmail.qq.com"):
+    msg = MIMEMultipart()
+    msg['Subject'] = subject
+    msg['From'] = sender
+    msg['To'] = COMMASPACE.join(receivers)
+    msg['Date'] = formatdate(localtime=True)
+    msg.attach(MIMEText(text, 'html'))
+    for fname in files or []:
+        with open(fname, "rb") as fp:
+            part = MIMEBase('application', "octet-stream")
+            part.set_payload(fp.read())
+            encode_base64(part)
+
+            part.add_header('Content-Disposition', 'attachment; filename="%s"' % os.path.basename(fname))
+            msg.attach(part)
+
+    logger.info("sending email..")
+    try:
+        s = smtplib.SMTP(server)
+        s.login(sender, password)
+        s.sendmail(sender, receivers, msg.as_string())
+        s.close()
+        logger.info("Sent email successfully")
+        return True
+    except SMTPException as e:
+        logger.warning("Error: unable to send email %s" % str(e))
+        return False
 
 
 def bearychat_sendmsg(to, content):
