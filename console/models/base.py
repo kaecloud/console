@@ -18,7 +18,7 @@ class BaseModelMixin(db.Model, Jsonized):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     created = db.Column(db.DateTime, server_default=sa.sql.func.now())
-    updated = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    updated = db.Column(db.DateTime, default=sa.sql.func.now(), onupdate=sa.sql.func.now())
 
     @classmethod
     def create(cls, **kwargs):
