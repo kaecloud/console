@@ -271,7 +271,6 @@ def build_app(socket, appname):
 </div>'''
             email_text = email_text_tpl.format(text_title, html.escape("\n".join(total_msg)) + '\n' + build_result_text)
             email_list = [u.email for u in app.users]
-            print("+++++", email_list, subject, email_text)
             send_email(email_list, subject, email_text)
     else:
         socket.send(make_errmsg("there seems exist another build task and you set block to {}".format(block), jsonize=True))
