@@ -1,3 +1,4 @@
+import time
 import json
 import html
 from functools import wraps
@@ -23,7 +24,7 @@ from console.libs.view import create_api_blueprint, user_require
 from console.models import App, Job
 from console.tasks import celery_task_stream_response, build_image
 from console.ext import rds, db
-from console.config import DEFAULT_APP_NS, DEFAULT_JOB_NS
+from console.config import DEFAULT_APP_NS, DEFAULT_JOB_NS, NGINX_READ_TIMEOUT
 
 ws = create_api_blueprint('ws', __name__, url_prefix='ws', jsonize=False, handle_http_error=False)
 
@@ -49,6 +50,8 @@ def ignore_socket_dead(f):
 @ignore_socket_dead
 def get_app_pods_events(socket, appname):
     payload = None
+    socket_active_ts = time.time()
+
     while True:
         message = socket.receive()
         if message is None:
@@ -99,8 +102,29 @@ def get_app_pods_events(socket, appname):
                 if socket.receive() is None:
                     need_exit = True
                     break
+
+        def heartbeat_sender():
+            nonlocal need_exit, socket_active_ts
+            interval = NGINX_READ_TIMEOUT - 3
+            if interval <= 0:
+                interval = NGINX_READ_TIMEOUT
+
+            while need_exit is False:
+                now = time.time()
+                if now - socket_active_ts <= (interval-1):
+                    time.sleep(interval - (now - socket_active_ts))
+                else:
+                    try:
+                        socket.send("PONG")
+                        socket_active_ts = time.time()
+                    except WebSocketError as e:
+                        need_exit = True
+                        return
+
+        gevent.spawn(check_client_socket)
+        gevent.spawn(heartbeat_sender)
+
         try:
-            gevent.spawn(check_client_socket)
 
             while need_exit is False:
                 resp = pubsub.get_message(timeout=30)
@@ -116,6 +140,7 @@ def get_app_pods_events(socket, appname):
                     if isinstance(content, bytes):
                         content = content.decode('utf-8')
                     socket.send(content)
+                    socket_active_ts = time.time()
         finally:
             # need close the connection created by PUB/SUB,
             # otherwise it will cause too many redis connections
@@ -161,7 +186,8 @@ def build_app(socket, appname):
           error: "xxx"
     """
     payload = None
-    total_msg= []
+    total_msg = []
+    client_closed = False
 
     phase = None
     def handle_msg(ss):
@@ -227,10 +253,25 @@ def build_app(socket, appname):
         socket.send(make_errmsg('release {} not found.'.format(tag), jsonize=True))
         return
 
+    def heartbeat_sender():
+        nonlocal client_closed
+        interval = NGINX_READ_TIMEOUT - 3
+        if interval <= 0:
+            interval = NGINX_READ_TIMEOUT
+
+        while client_closed is False:
+            try:
+                time.sleep(interval)
+                socket.send("PONG")
+            except WebSocketError as e:
+                client_closed = True
+                return
+
+    gevent.spawn(heartbeat_sender)
+
     # don't allow multiple build tasks for single app
     lock_name = "__app_lock_{}_build_aaa".format(appname)
     lck = redis_lock.Lock(rds, lock_name, expire=30, auto_renewal=True)
-    client_closed = False
     if lck.acquire(blocking=block):
         try:
             async_result = build_image.delay(appname, tag)
@@ -342,6 +383,21 @@ def enter_pod(socket, appname):
     sh = kube_api.exec_shell(podname, namespace=namespace, cluster_name=cluster, container=container)
     need_exit = False
 
+    def heartbeat_sender():
+        nonlocal need_exit
+        interval = NGINX_READ_TIMEOUT - 3
+        if interval <= 0:
+            interval = NGINX_READ_TIMEOUT
+
+        while need_exit is False:
+            time.sleep(interval)
+            try:
+                # send a null character to client
+                socket.send('\0')
+            except WebSocketError as e:
+                need_exit = True
+                return
+
     def resp_sender():
         nonlocal need_exit
         try:
@@ -364,6 +420,7 @@ def enter_pod(socket, appname):
 
         logger.info("exec output sender greenlet exit")
     gevent.spawn(resp_sender)
+    gevent.spawn(heartbeat_sender)
     try:
         while need_exit is False:
             # get command from client

@@ -29,6 +29,10 @@ CONTAINER_CONFIG_DIR = os.path.join(CONFIG_ROOT_DIR, "config")
 INGRESS_ANNOTATIONS_PREFIX = "nginx.ingress.kubernetes.io"
 APP_BUILD_TIMEOUT = 1800     # timeout for build image(30 minutes)
 
+# in order to avoid nginx to close the idle websocket connection,
+# we need to send heartbeat message to refresh the read timeout
+NGINX_READ_TIMEOUT = 60
+
 EMAIL_SENDER = ""
 EMAIL_SENDER_PASSWOORD = ""
 # SERVER_NAME = getenv('SERVER_NAME', default='127.0.0.1')
