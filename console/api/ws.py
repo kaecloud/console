@@ -3,7 +3,7 @@ import json
 import html
 from functools import wraps
 import contextlib
-from flask import session, g
+from flask import session, g, current_app, request, url_for
 from json.decoder import JSONDecodeError
 from marshmallow import ValidationError
 import gevent
@@ -21,12 +21,35 @@ from console.libs.validation import (
     build_args_schema, cluster_args_schema, cluster_canary_schema, pod_entry_schema
 )
 from console.libs.view import create_api_blueprint, user_require
-from console.models import App, Job
+from console.models import App, Job, User, get_current_user
 from console.tasks import celery_task_stream_response, build_image
 from console.ext import rds, db
-from console.config import DEFAULT_APP_NS, DEFAULT_JOB_NS, NGINX_READ_TIMEOUT
+from console.config import DEFAULT_APP_NS, DEFAULT_JOB_NS, NGINX_READ_TIMEOUT, FAKE_USER
 
 ws = create_api_blueprint('ws', __name__, url_prefix='ws', jsonize=False, handle_http_error=False)
+
+
+def ws_user_require(privileged=False):
+    def _user_require(func):
+        @wraps(func)
+        def _(socket, *args, **kwargs):
+            if current_app.config['DEBUG']:
+                g.user = User(**FAKE_USER)
+            else:
+                g.user = get_current_user()
+            if not g.user:
+                # TODO: change the message
+                socket.send(make_errmsg('please login, login url: {}?next={}'.format(url_for('user.login'), request.url), jsonize=True))
+                socket.close()
+                return
+            elif privileged and g.user.privileged != 1:
+                socket.send(make_errmsg('dude you are not administrator', jsonize=True))
+                socket.close()
+                return
+
+            return func(socket, *args, **kwargs)
+        return _
+    return _user_require
 
 
 @contextlib.contextmanager
@@ -46,8 +69,8 @@ def ignore_socket_dead(f):
 
 
 @ws.route('/app/<appname>/pods/events')
-@user_require(False)
 @ignore_socket_dead
+@ws_user_require(False)
 def get_app_pods_events(socket, appname):
     payload = None
     socket_active_ts = time.time()
@@ -151,8 +174,8 @@ def get_app_pods_events(socket, appname):
 
 
 @ws.route('/app/<appname>/build')
-@user_require(False)
 @ignore_socket_dead
+@ws_user_require(False)
 def build_app(socket, appname):
     """Build an image for the specified release.
     ---
@@ -318,8 +341,8 @@ def build_app(socket, appname):
 
 
 @ws.route('/job/<jobname>/log/events')
-@user_require(False)
 @ignore_socket_dead
+@ws_user_require(False)
 def get_job_log_events(socket, jobname):
     """
     SSE endpoint fo job log
@@ -350,8 +373,8 @@ def get_job_log_events(socket, jobname):
 
 
 @ws.route('/app/<appname>/entry')
-@user_require(False)
 @ignore_socket_dead
+@ws_user_require(False)
 def enter_pod(socket, appname):
     payload = None
     while True:
