@@ -37,7 +37,7 @@ class Job(BaseModelMixin):
     status = db.Column(db.String(64), nullable=False, default='')
 
     users = db.relationship('User', secondary=job_user_association,
-                            backref=db.backref('jobs', lazy='dynamic'))
+                            backref=db.backref('jobs', lazy='dynamic'), lazy='dynamic')
 
     def __str__(self):
         return '<{}:{}>'.format(self.name, self.git)

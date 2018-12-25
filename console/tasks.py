@@ -45,21 +45,6 @@ def handle_job_pod_event(jobname, obj):
 
     pod_name = obj['metadata']['name']
 
-    # # update Running Node & used GPU
-    # if status[0] == 'terminated':
-    #     node_used_gpus[obj['spec']['nodeName']].pop(pod_name, None)
-    # elif status[0] == 'waiting':  # waiting doesn't use GPU
-    #     pass
-    # elif obj['spec'].get('nodeName', None):
-    #     job_update['runningNode'] = obj['spec']['nodeName']
-    #     node_used_gpus[obj['spec']['nodeName']][pod_name] = int(job_exist['gpuNum'])
-
-    # # Job is being terminated should not affect job status
-    # if labels.get('ktqueue-terminating', None) == 'true':
-    #     return
-
-    # logging.info('Job {} enter state {}'.format(job_name, status_str))
-
     # update status
     if status == ('terminated', 'Completed'):
         job_update['status'] = 'Completed'

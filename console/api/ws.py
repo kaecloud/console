@@ -359,17 +359,22 @@ def get_job_log_events(socket, jobname):
     if not job:
         socket.send(json.dumps({"error": "job {} not found".format(jobname)}))
         return
-    try:
-        with session_removed():
+    with session_removed():
+        try:
             pods = kube_api.get_job_pods(jobname, namespace=ns)
-            if pods.items:
-                podname = pods.items[0].metadata.name
+        except ApiException as e:
+            socket.send(json.dumps({"error": "Error when get job pods: {}".format(str(e))}))
+            return
+        if pods.items:
+            podname = pods.items[0].metadata.name
+            try:
                 for line in kube_api.follow_pod_log(podname=podname, namespace=ns):
                     socket.send(json.dumps({'data': line}))
-            else:
-                socket.send(json.dumps({"error": "no log, please retry"}))
-    except ApiException as e:
-        socket.send(json.dumps({"error": "Error when create job: {}".format(str(e))}))
+            except ApiException as e:
+                socket.send(json.dumps({"error": "Error when follow job log, please retry: {}".format(str(e))}))
+                return
+        else:
+            socket.send(json.dumps({"error": "no log, please retry"}))
 
 
 @ws.route('/app/<appname>/entry')
