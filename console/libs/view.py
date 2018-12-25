@@ -81,7 +81,7 @@ def create_api_blueprint(name, import_name, url_prefix=None, jsonize=True, handl
     return bp
 
 
-def user_require(privileged=False, redirect_on_false=False):
+def user_require(privileged=False):
     def _user_require(func):
         @wraps(func)
         def _(*args, **kwargs):
@@ -90,15 +90,13 @@ def user_require(privileged=False, redirect_on_false=False):
             else:
                 g.user = get_current_user()
             if not g.user:
-                if redirect_on_false is True:
-                    return redirect('{}?next={}'.format(url_for('user.login'), request.url))
-                else:
-                    # TODO: change the message
-                    abort(403, '{}?next={}'.format(url_for('user.login'), request.url))
+                # TODO: change the message
+                abort(403, '{}?next={}'.format(url_for('user.login'), request.url))
             elif privileged and g.user.privileged != 1:
                 abort(403, 'dude you are not administrator')
 
             return func(*args, **kwargs)
         return _
     return _user_require
+
 
