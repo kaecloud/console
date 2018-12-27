@@ -1,0 +1,27 @@
+stages:
+  - unittest
+  - build
+
+unittest:
+  stage: unittest
+  image: python:3.6.6-alpine
+  before_script:
+    - sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories
+    - apk update
+    - apk add --no-cache gcc musl-dev python3-dev libffi-dev openssl-dev linux-headers alpine-sdk libstdc++
+    - pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ pipenv
+    - pipenv install --system --dev
+  script:
+    - PYTEST=1 pytest
+# build:
+#   stage: build
+#   retry: 2
+#   image: yuyang0/kae-cli:latest
+#   script:
+#     # Compile and name the binary as `hello`
+#     - kae version
+#     - kae app:register --force
+#     - kae app:build
+#   only:
+#     - tags
+# 

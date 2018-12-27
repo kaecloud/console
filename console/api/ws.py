@@ -445,8 +445,8 @@ def enter_pod(socket, appname):
             logger.warn('client socket is closed')
         finally:
             need_exit = True
+            logger.info("exec output sender greenlet exit")
 
-        logger.info("exec output sender greenlet exit")
     gevent.spawn(resp_sender)
     gevent.spawn(heartbeat_sender)
     try:

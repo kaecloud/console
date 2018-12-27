@@ -28,7 +28,7 @@ def validate_positive_integer(i):
 
 
 def validate_appname(name):
-    regex = re.compile(r'[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+    regex = re.compile(r'[a-zA-Z_][\w-]*$')
     if regex.match(name) is None:
         raise ValidationError("appname is invalid")
 
