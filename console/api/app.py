@@ -13,7 +13,8 @@ from webargs.flaskparser import use_args
 from console.libs.validation import (
     RegisterSchema, CreateAppArgsSchema, UserSchema, RollbackSchema, SecretArgsSchema, ConfigMapArgsSchema,
     ScaleSchema, DeploySchema, ClusterArgSchema, OptionalClusterArgSchema, ABTestingSchema,
-    ClusterCanarySchema, SpecsArgsSchema, AppYamlArgsSchema, PaginationSchema, PodLogArgsSchema
+    ClusterCanarySchema, SpecsArgsSchema, AppYamlArgsSchema, PaginationSchema, PodLogArgsSchema,
+    PodEntryArgsSchema,
 )
 from console.libs.utils import logger, make_canary_appname, bearychat_sendmsg
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
@@ -1764,3 +1765,30 @@ def get_app_abtesting_rules(args, appname):
     if rules is None:
         abort(404, "not found")
     return rules
+
+
+@bp.route('/<appname>/container/stop', methods=['POST'])
+@use_args(PodEntryArgsSchema())
+@user_require(False)
+def stop_container(args, appname):
+    """
+    stop container
+    """
+    podname = args['podname']
+    cluster = args['cluster']
+    namespace = args['namespace']
+    container = args.get('container', None)
+
+    # ns = DEFAULT_APP_NS
+
+    app = App.get_by_name(appname)
+    if not app:
+        abort(404, 'app {} not found'.format(appname))
+
+    if not g.user.granted_to_app(app):
+        abort(403, 'You\'re not granted to this app, ask administrators for permission')
+
+    with handle_k8s_error("Error when stop container"):
+        rules = kube_api.stop_container(podname, cluster_name=cluster, namespace=namespace, container=container)
+
+    return DEFAULT_RETURN_VALUE

@@ -167,6 +167,21 @@ class ClientApiBundle(object):
         resp = stream(self.core_v1api.connect_get_namespaced_pod_exec, podname, namespace, **kwargs)
         return resp
 
+    def stop_container(self, podname, namespace='default', container=None):
+        exec_command = ['/bin/kill', '1']
+        kwargs = {
+            "command": exec_command,
+            "stdin": False,
+            "tty": False,
+            "stderr": True,
+            "stdout": True,
+            "_preload_content": False,
+        }
+        if container:
+            kwargs['container'] = container
+        resp = stream(self.core_v1api.connect_get_namespaced_pod_exec, podname, namespace, **kwargs)
+        return resp
+
     def create_or_update_config_map(self, appname, cm_data, replace=True, namespace="default"):
         """
         create or update configmap for specfied app
