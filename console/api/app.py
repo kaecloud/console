@@ -18,7 +18,7 @@ from console.libs.validation import (
 from console.libs.utils import logger, make_canary_appname, bearychat_sendmsg
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
 from console.models import App, Release, SpecVersion, User, OPLog, OPType, AppYaml
-from console.models.specs import fix_app_spec, app_specs_schema
+from console.libs.specs import fix_app_spec, app_specs_schema
 from console.libs.k8s import kube_api, KubeError
 from console.libs.k8s import ApiException
 from console.config import DEFAULT_REGISTRY, DEFAULT_APP_NS

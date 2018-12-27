@@ -2,16 +2,52 @@
 import re
 import numbers
 from humanfriendly import parse_size, InvalidSize
-from marshmallow import fields, validates_schema, ValidationError
+from marshmallow import Schema, validates_schema, ValidationError, fields
 from numbers import Number
 
-from console.models.base import StrictSchema
 from console.libs.k8s import kube_api
+
+
+class StrictSchema(Schema):
+    @validates_schema(pass_original=True)
+    def check_unknown_fields(self, data, original_data):
+        if original_data is None:
+            raise ValidationError("the data passed the schema is null")
+        unknown = set(original_data) - set(self.fields) - set(field.load_from for field in self.fields.values())
+        if unknown:
+            raise ValidationError('Unknown fields: {}, please check the docs'.format(unknown))
+
+    class Meta:
+        strict = True
+        ordered = True
 
 
 def validate_positive_integer(i):
     if i <= 0:
         raise ValidationError("Need a positive integer")
+
+
+def validate_appname(name):
+    regex = re.compile(r'[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+    if regex.match(name) is None:
+        raise ValidationError("appname is invalid")
+
+
+def validate_tag(tag):
+    regex = re.compile(r'[\w][\w.-]{0,127}$')
+    if regex.match(tag) is None:
+        raise ValidationError("tag is invalid")
+
+
+def validate_git(git_url):
+    regex = re.compile(r'((git|ssh|http(s)?)|(git@[\w.]+))(:(//)?)([\w.@:/\-~]+)(\.git)(/)?$')
+    if regex.match(git_url) is None:
+        raise ValidationError("git url is invalid")
+
+
+def validate_app_type(ss):
+    if ss not in ("web", "worker"):
+        raise ValidationError("app type should be `web`, `worker`")
 
 
 def validate_jobname(name):
@@ -178,9 +214,9 @@ class PaginationSchema(StrictSchema):
 
 
 class RegisterSchema(StrictSchema):
-    appname = fields.Str(required=True)
-    tag = fields.Str(required=True)
-    git = fields.Str(required=True)
+    appname = fields.Str(required=True, validate=validate_appname)
+    tag = fields.Str(required=True, validate=validate_tag)
+    git = fields.Str(required=True, validate=validate_git)
     specs_text = fields.Str(required=True)
     branch = fields.Str()
     commit_message = fields.Str()
@@ -189,9 +225,9 @@ class RegisterSchema(StrictSchema):
 
 
 class CreateAppArgsSchema(StrictSchema):
-    appname = fields.Str(required=True)
-    git = fields.Str(required=True)
-    type = fields.Str(required=True)
+    appname = fields.Str(required=True, validate=validate_appname)
+    git = fields.Str(required=True, validate=validate_git)
+    type = fields.Str(required=True, validate=validate_app_type)
 
 
 def parse_memory(s):

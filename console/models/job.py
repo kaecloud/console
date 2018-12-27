@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import json
 import yaml
 from sqlalchemy import event, DDL
 from sqlalchemy.exc import IntegrityError
@@ -10,7 +9,7 @@ from werkzeug.utils import cached_property
 
 from console.ext import db
 from console.models.base import BaseModelMixin
-from console.models.specs import load_job_specs
+from console.libs.specs import load_job_specs
 from console.libs.utils import logger
 
 

@@ -4,11 +4,8 @@ import copy
 import random
 import string
 import yaml
-from humanfriendly import parse_size
-from marshmallow import ValidationError
-from telnetlib import Telnet
 
-from console.models.specs import app_specs_schema
+from console.libs.specs import app_specs_schema
 
 
 # core_online = False

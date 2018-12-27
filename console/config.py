@@ -219,4 +219,5 @@ def setup_config_from_secrets():
         shutil.copyfile(full_src, full_dst)
 
 
-setup_config_from_secrets()
+if getenv("PYTEST") is None:
+    setup_config_from_secrets()

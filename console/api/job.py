@@ -1,5 +1,4 @@
 import os
-import re
 import yaml
 from flask import abort, g
 import time
@@ -12,7 +11,7 @@ from webargs.flaskparser import use_args
 from console.libs.validation import JobArgsSchema
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
 from console.models import Job
-from console.models.specs import load_job_specs
+from console.libs.specs import load_job_specs
 from console.libs.k8s import kube_api, ApiException
 from console.libs.cloner import Cloner
 from console.config import JOBS_ROOT_DIR, DEFAULT_JOB_NS

@@ -2,7 +2,7 @@ import pytest
 from pprint import pprint
 import yaml
 from console.libs.k8s import KubernetesApi, ApiException
-from console.models.specs import app_specs_schema
+from console.libs.specs import app_specs_schema
 
 specs_text = """
 appname: hello

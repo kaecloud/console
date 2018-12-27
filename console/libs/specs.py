@@ -4,8 +4,10 @@ import os
 from addict import Dict
 from marshmallow import fields, validates_schema, ValidationError, post_load
 
-from console.models.base import StrictSchema
-from console.libs.validation import validate_cpu, validate_memory, validate_jobname
+from console.libs.validation import (
+    StrictSchema, validate_cpu, validate_memory, validate_appname, validate_jobname,
+    validate_app_type, validate_tag,
+)
 from console.config import DEFAULT_REGISTRY
 
 
@@ -28,11 +30,6 @@ def validate_env_list(l):
 def validate_image_pull_policy(ss):
     if ss not in ('Always', 'Never', 'IfNotPresent'):
         raise ValidationError("invalid imagePullPolicy value, only one of Always, Never, IfNotPresent is allowed")
-
-
-def validate_app_type(ss):
-    if ss not in ("web", "worker"):
-        raise ValidationError("app type should be `web`, `worker`")
 
 
 def validate_abs_path(ss):
@@ -128,7 +125,7 @@ class ContainerPort(StrictSchema):
 
 class BuildSchema(StrictSchema):
     name = fields.Str(validate=validate_build_name)
-    tag = fields.Str()
+    tag = fields.Str(validate=validate_tag)
     dockerfile = fields.Str()
     target = fields.Str()
     args = fields.Dict()
@@ -242,7 +239,7 @@ service_schema = ServiceSchema()
 
 
 class AppSpecsSchema(StrictSchema):
-    appname = fields.Str(required=True)
+    appname = fields.Str(required=True, validate=validate_appname)
     type = fields.Str(missing="worker", validate=validate_app_type)
     builds = fields.List(fields.Nested(BuildSchema), missing=[])
     service = fields.Nested(ServiceSchema, required=True)

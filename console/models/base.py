@@ -4,7 +4,6 @@ import sqlalchemy.orm.exc
 import sqlalchemy.types as types
 from datetime import datetime
 from flask_sqlalchemy import sqlalchemy as sa
-from marshmallow import Schema, validates_schema, ValidationError
 from sqlalchemy import inspect
 
 from console.ext import db
@@ -95,15 +94,3 @@ class Enum34(types.TypeDecorator):
         return None
 
 
-class StrictSchema(Schema):
-    @validates_schema(pass_original=True)
-    def check_unknown_fields(self, data, original_data):
-        if original_data is None:
-            raise ValidationError("the data passed the schema is null")
-        unknown = set(original_data) - set(self.fields) - set(field.load_from for field in self.fields.values())
-        if unknown:
-            raise ValidationError('Unknown fields: {}, please check the docs'.format(unknown))
-
-    class Meta:
-        strict = True
-        ordered = True
