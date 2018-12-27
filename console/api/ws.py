@@ -212,7 +212,8 @@ def build_app(socket, appname):
     total_msg = []
     client_closed = False
 
-    phase = None
+    phase = ""
+
     def handle_msg(ss):
         nonlocal phase
         try:
