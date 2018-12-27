@@ -417,14 +417,17 @@ def enter_pod(socket, appname):
         if interval <= 0:
             interval = NGINX_READ_TIMEOUT
 
-        while need_exit is False:
-            time.sleep(interval)
-            try:
-                # send a null character to client
-                socket.send('\0')
-            except WebSocketError as e:
-                need_exit = True
-                return
+        try:
+            while need_exit is False:
+                time.sleep(interval)
+                try:
+                    # send a null character to client
+                    socket.send('\0')
+                except WebSocketError as e:
+                    need_exit = True
+                    return
+        finally:
+            logger.debug("pod entry heartbeat greenlet exit")
 
     def resp_sender():
         nonlocal need_exit
@@ -443,12 +446,17 @@ def enter_pod(socket, appname):
             logger.warn('kubernetes disconnect client after default 10m...')
         except WebSocketError as e:
             logger.warn('client socket is closed')
+        except Exception as e:
+            logger.warn("unknown exception {}".format(str(e)))
         finally:
             need_exit = True
-            logger.info("exec output sender greenlet exit")
+            logger.debug("exec output sender greenlet exit")
 
     gevent.spawn(resp_sender)
     gevent.spawn(heartbeat_sender)
+
+    # to avoid lost mysql connection exception
+    db.session.remove()
     try:
         while need_exit is False:
             # get command from client
@@ -460,3 +468,4 @@ def enter_pod(socket, appname):
             continue
     finally:
         need_exit = True
+        logger.debug("pod entry greenlet exit")
