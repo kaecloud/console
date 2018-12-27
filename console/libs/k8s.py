@@ -18,7 +18,9 @@ from console.config import (
     INGRESS_ANNOTATIONS_PREFIX,
 )
 
-from .utils import parse_image_name, id_generator, make_canary_appname, search_tls_secret
+from .utils import (
+    parse_image_name, id_generator, make_canary_appname, search_tls_secret, get_dfs_host_dir,
+)
 
 
 class KubeError(Exception):
@@ -93,9 +95,6 @@ class KubernetesApi(object):
                 raise Exception("cluster {} is not available".format(cluster_name))
             func = getattr(cluster, item)
 
-            # deploy_app needs cluster argument to create ingress dict
-            if item == "deploy_app":
-                kwargs['cluster'] = cluster_name
             return func(*args, **kwargs)
         return wrapper
 
@@ -103,6 +102,7 @@ class KubernetesApi(object):
 class ClientApiBundle(object):
     def __init__(self, name, core_v1api, extensions_api, batch_api):
         self.name = name
+        self.cluster = name
         self.core_v1api = core_v1api
         self.extensions_api = extensions_api
         self.batch_api = batch_api
@@ -303,7 +303,7 @@ class ClientApiBundle(object):
         deployment.spec.template.metadata.annotations['renew_id'] = id_generator(10)
         self.extensions_api.replace_namespaced_deployment(name=appname, namespace=namespace, body=deployment)
 
-    def deploy_app(self, spec, release_tag, cluster, namespace="default"):
+    def deploy_app(self, spec, release_tag, namespace="default"):
         ing = None
         dp_annotations = {
             'release_tag': release_tag,
@@ -312,7 +312,7 @@ class ClientApiBundle(object):
         svc = self._create_service_dict(spec)
 
         if spec.type == "web":
-            ing = self._create_ingress_dict(spec, cluster)
+            ing = self._create_ingress_dict(spec)
         self.apply(dp, namespace=namespace)
         self.apply(svc, namespace=namespace)
         if ing is not None:
@@ -474,10 +474,11 @@ class ClientApiBundle(object):
             else:
                 raise e
 
-    @classmethod
-    def _construct_pod_spec(cls, name, volumes_root, container_spec_list,
+    def _construct_pod_spec(self, name, volumes_root, container_spec_list,
                             restartPolicy='Always', initial_env=None,
                             initial_vol_mounts=None, default_work_dir=None, secret_name=None):
+        use_dfs = False
+        cluster_dfs_exists = (get_dfs_host_dir(self.cluster) is not None)
         has_configmap = False
         if secret_name is None:
             secret_name = name
@@ -574,6 +575,13 @@ class ClientApiBundle(object):
                     if 'env' not in c:
                         c.env = []
                     c.env.append(secret_ref)
+            if container_spec.useDFS and cluster_dfs_exists:
+                use_dfs = True
+                volume_mount = {
+                    "name": "dfs-volume",
+                    "mountPath": "/kae/dfs",
+                }
+                c.volumeMounts.append(volume_mount)
 
         if has_configmap:
             cfg_vol = {
@@ -584,12 +592,22 @@ class ClientApiBundle(object):
             }
             pod_spec.volumes.append(cfg_vol)
 
+        if use_dfs and cluster_dfs_exists:
+            dfs_host_dir = get_dfs_host_dir(self.cluster)
+            dfs_vol = {
+                "name": "dfs-volume",
+                "hostPath": {
+                    "path": os.path.join(dfs_host_dir, "kae/apps", secret_name),
+                    "type": "DirectoryOrCreate",
+                }
+            }
+            pod_spec.volumes.append(dfs_vol)
+
         pod_spec.containers = containers
         pod_spec.restartPolicy = restartPolicy
         return pod_spec
 
-    @classmethod
-    def _create_deployment_dict(cls, spec, version=None, renew_id=None, annotations=None, canary=False):
+    def _create_deployment_dict(self, spec, version=None, renew_id=None, annotations=None, canary=False):
         # secret_name is the secret name and configmap name for this app
         secret_name = spec.appname
         if canary:
@@ -656,7 +674,7 @@ class ClientApiBundle(object):
             "name": "kae-log-volumes",
             "mountPath": POD_LOG_DIR,
         }
-        pod_spec = cls._construct_pod_spec(appname, app_dir, svc.containers, initial_vol_mounts=[log_mount], secret_name=secret_name)
+        pod_spec = self._construct_pod_spec(appname, app_dir, svc.containers, initial_vol_mounts=[log_mount], secret_name=secret_name)
         pod_spec.volumes.append(
             {
                 "name": "kae-log-volumes",
@@ -699,8 +717,8 @@ class ClientApiBundle(object):
         }
         return obj
 
-    @classmethod
-    def _create_ingress_dict(cls, spec, cluster):
+    def _create_ingress_dict(self, spec):
+        cluster = self.cluster
         appname = spec.appname
         svc = spec.service
 
@@ -793,8 +811,7 @@ class ClientApiBundle(object):
         obj.spec.tls = tls_list
         return obj
 
-    @classmethod
-    def _create_job_dict(cls, spec):
+    def _create_job_dict(self, spec):
         jobname = spec.jobname
         job_dir = os.path.join(JOBS_ROOT_DIR, jobname)
         if not os.path.exists(job_dir):
@@ -830,8 +847,8 @@ class ClientApiBundle(object):
         # see https://github.com/kubernetes/kubernetes/issues/54870
         restartPolicy = 'OnFailure' if spec.autoRestart else 'Never'
 
-        pod_spec = cls._construct_pod_spec(jobname, job_dir, spec.containers, restartPolicy=restartPolicy,
-                                           initial_env=initial_env, default_work_dir=work_dir)
+        pod_spec = self._construct_pod_spec(jobname, job_dir, spec.containers, restartPolicy=restartPolicy,
+                                            initial_env=initial_env, default_work_dir=work_dir)
         # add more config for job
         pod_spec.volumes.append(DFS_VOLUME)
         for c in pod_spec.containers:

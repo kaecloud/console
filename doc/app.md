@@ -81,4 +81,5 @@ service:
     - dir: xxxx            # required, the config map's mount path in container
       key: xxxx            # required, the key in configmap
       filename: xxx        # optional, default is the value of `key`
+    useDFS: false          # optional, if set to true, then KAE will mount the distribute filesystem such ceph to /kae/dfs
 ```

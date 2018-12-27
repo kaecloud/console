@@ -24,6 +24,7 @@ from functools import wraps
 from console.config import (
     BOT_WEBHOOK_URL, LOGGER_NAME, DEBUG, DEFAULT_REGISTRY, JOBS_LOG_ROOT_DIR,
     REPO_DATA_DIR, TLS_SECRET_MAP, EMAIL_SENDER, EMAIL_SENDER_PASSWOORD,
+    DFS_HOST_DIR_MAP,
 )
 from console.libs.jsonutils import VersatileEncoder
 
@@ -225,6 +226,10 @@ def search_tls_secret(cluster, hostname):
             return None
         parent = parts[1]
         return cluster_secret_map.get(parent, None)
+
+
+def get_dfs_host_dir(cluster):
+    return DFS_HOST_DIR_MAP.get(cluster, None)
 
 
 def get_job_log_versions(job_name):

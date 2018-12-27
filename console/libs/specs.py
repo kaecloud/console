@@ -199,6 +199,7 @@ class ContainerSpec(StrictSchema):
     configs = fields.List(fields.Nested(ConfigMapSchema), missing=[])
     secrets = fields.Nested(SecretSchema)
     volumeMounts = fields.List(fields.Nested(VolumeMountSchema), missing=[])
+    useDFS = fields.Bool(missing=False)
 
     @post_load
     def add_defaults(self, data):

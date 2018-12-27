@@ -81,6 +81,10 @@ TLS_SECRET_MAP = {
     # }
 }
 
+DFS_HOST_DIR_MAP = {
+    # "cluster1": "/dfs"
+}
+
 HOST_DATA_DIR = "/data/kae"
 POD_LOG_DIR = "/kae/logs"
 
