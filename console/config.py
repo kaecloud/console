@@ -67,14 +67,18 @@ REGISTRY_AUTHS = {
     "registry.cn-hangzhou.aliyuncs.com": "aliyun",
 }
 
+# Set base domain for cluster, when a cluster has base domain,
+# every app in that cluster will a host name `appname.basedomain`
 # if you use incluster config, then the cluster name should be `incluster`.
 CLUSTER_BASE_DOMAIN_MAP = {
-    "cluster1": "domain name",        # base domain, every app will get a host name `appname.basedoamin`
-    "cluster2": "domain name",
+    # "cluster1": "domain name",
+    # "cluster2": "domain name",
 }
 
 TLS_SECRET_MAP = {
-    "domain name": "tls secret name"
+    # "cluster1": {
+    #     "domain name": "tls secret name"
+    # }
 }
 
 HOST_DATA_DIR = "/data/kae"
@@ -119,9 +123,11 @@ if REDIS_URL is None:
     raise ValueError("REDIS_URL can't be None")
 
 # validate CLUSTER_BASE_DOMAIN_MAP
-for base_domain in CLUSTER_BASE_DOMAIN_MAP.values():
-    if base_domain not in TLS_SECRET_MAP:
-        raise ValueError("cluster base domain {} needs tls secret".format(base_domain))
+for cluster, base_domain in CLUSTER_BASE_DOMAIN_MAP.items():
+    if cluster not in TLS_SECRET_MAP:
+        raise ValueError("cluster {} base domain {} needs tls secret".format(cluster, base_domain))
+    if base_domain not in TLS_SECRET_MAP[cluster]:
+        raise ValueError("cluster {} base domain {} needs tls secret".format(cluster, base_domain))
 
 ##################################################
 # the config below must not use getenv

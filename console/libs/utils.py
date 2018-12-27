@@ -212,17 +212,19 @@ def make_canary_appname(appname):
     return "{}-canary".format(appname)
 
 
-def search_tls_secret(hostname):
-    if hostname in TLS_SECRET_MAP:
-        return TLS_SECRET_MAP[hostname]
+def search_tls_secret(cluster, hostname):
+    cluster_secret_map = TLS_SECRET_MAP.get(cluster, None)
+    if cluster_secret_map is None:
+        return None
+
+    if hostname in cluster_secret_map:
+        return cluster_secret_map[hostname]
     else:
         parts = hostname.split('.', 1)
         if len(parts) < 2:
             return None
         parent = parts[1]
-        if parent in TLS_SECRET_MAP:
-            return TLS_SECRET_MAP[parent]
-    return None
+        return cluster_secret_map.get(parent, None)
 
 
 def get_job_log_versions(job_name):

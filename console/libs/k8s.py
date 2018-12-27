@@ -741,7 +741,7 @@ class ClientApiBundle(object):
             # if tlsSecret is specified, then use it, otherwise search from config
             tls_secret = mp.tlsSecret
             if not tls_secret:
-                tls_secret = search_tls_secret(mp.host)
+                tls_secret = search_tls_secret(cluster, mp.host)
             if tls_secret:
                 ingress_tls = {
                     "hosts": [
@@ -758,7 +758,7 @@ class ClientApiBundle(object):
                 mp_cfg[default_domain] = ['/']
 
                 # setup tls
-                tls_secret = search_tls_secret(default_domain)
+                tls_secret = search_tls_secret(cluster, default_domain)
                 if tls_secret:
                     ingress_tls = {
                         "hosts": [
