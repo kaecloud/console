@@ -429,7 +429,7 @@ def enter_pod(socket, appname):
     def resp_sender():
         nonlocal need_exit
         try:
-            while need_exit is False:
+            while sh.is_open() and need_exit is False:
                 sh.update(timeout=1)
                 if sh.peek_stdout():
                     msg = sh.read_stdout()
