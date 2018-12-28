@@ -12,7 +12,7 @@ from urllib3.exceptions import ProtocolError
 import redis_lock
 
 from console.libs.utils import (
-    logger, make_app_watcher_channel_name, make_errmsg, send_email,
+    logger, make_app_watcher_channel_name, make_errmsg, send_email, bearychat_sendmsg,
     build_image_helper, BuildError
 )
 from console.libs.jsonutils import VersatileEncoder
@@ -24,7 +24,10 @@ from console.libs.view import create_api_blueprint, user_require
 from console.models import App, Job, User, get_current_user
 from console.tasks import celery_task_stream_response, build_image
 from console.ext import rds, db
-from console.config import DEFAULT_APP_NS, DEFAULT_JOB_NS, NGINX_READ_TIMEOUT, FAKE_USER
+from console.config import (
+    DEFAULT_APP_NS, DEFAULT_JOB_NS, NGINX_READ_TIMEOUT, FAKE_USER,
+    BEARYCHAT_CHANNEL,
+)
 
 ws = create_api_blueprint('ws', __name__, url_prefix='ws', jsonize=False, handle_http_error=False)
 
@@ -337,6 +340,7 @@ def build_app(socket, appname):
             email_text = email_text_tpl.format(text_title, html.escape("\n".join(total_msg)) + '\n' + build_result_text)
             email_list = [u.email for u in app.users]
             send_email(email_list, subject, email_text)
+            bearychat_sendmsg(BEARYCHAT_CHANNEL, subject)
     else:
         socket.send(make_errmsg("there seems exist another build task and you set block to {}".format(block), jsonize=True))
 

@@ -22,7 +22,7 @@ from console.models import App, Release, SpecVersion, User, OPLog, OPType, AppYa
 from console.libs.specs import fix_app_spec, app_specs_schema
 from console.libs.k8s import kube_api, KubeError
 from console.libs.k8s import ApiException
-from console.config import DEFAULT_REGISTRY, DEFAULT_APP_NS
+from console.config import DEFAULT_REGISTRY, DEFAULT_APP_NS, BEARYCHAT_CHANNEL
 from console.ext import rds
 
 bp = create_api_blueprint('app', __name__, 'app')
@@ -378,7 +378,7 @@ def delete_app(appname):
     )
 
     msg = 'Warning: App **{}** has been deleted by **{}**.'.format(appname, g.user.nickname)
-    bearychat_sendmsg('platform', msg)
+    bearychat_sendmsg(BEARYCHAT_CHANNEL, msg)
     return DEFAULT_RETURN_VALUE
 
 
@@ -1451,7 +1451,7 @@ def undeploy_app(args, appname):
             )
 
     msg = 'Warning: App **{}**\'s deployment in cluster **{}** has been deleted by **{}**.'.format(appname, cluster, g.user.nickname)
-    bearychat_sendmsg('platform', msg)
+    bearychat_sendmsg(BEARYCHAT_CHANNEL, msg)
     return DEFAULT_RETURN_VALUE
 
 

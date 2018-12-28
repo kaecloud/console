@@ -16,7 +16,7 @@ from werkzeug.utils import import_string
 
 from console.config import (
     DEBUG, SENTRY_DSN, STATIC_DIR, TEMPLATE_DIR, TASK_PUBSUB_CHANNEL,
-    TASK_PUBSUB_EOF,
+    TASK_PUBSUB_EOF, BEARYCHAT_CHANNEL,
 )
 from console.ext import sess, db, mako, cache, init_oauth, rds, sockets
 from console.libs.datastructure import DateConverter
@@ -215,7 +215,7 @@ def make_celery(app):
             rds.publish(channel_name, json.dumps(failure_msg, cls=VersatileEncoder))
             rds.publish(channel_name, TASK_PUBSUB_EOF.format(task_id=task_id))
             msg = 'Console task {}:\nargs\n```\n{}\n```\nkwargs:\n```\n{}\n```\nerror message:\n```\n{}\n```'.format(self.name, args, kwargs, str(exc))
-            bearychat_sendmsg('platform', msg)
+            bearychat_sendmsg(BEARYCHAT_CHANNEL, msg)
 
         def __call__(self, *args, **kwargs):
             with app.app_context():
