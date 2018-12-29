@@ -25,7 +25,7 @@ from console.models import App, Job, User, get_current_user
 from console.tasks import celery_task_stream_response, build_image
 from console.ext import rds, db
 from console.config import (
-    DEFAULT_APP_NS, DEFAULT_JOB_NS, NGINX_READ_TIMEOUT, FAKE_USER,
+    DEFAULT_APP_NS, DEFAULT_JOB_NS, WS_HEARTBEAT_TIMEOUT, FAKE_USER,
     BEARYCHAT_CHANNEL,
 )
 
@@ -135,9 +135,9 @@ def get_app_pods_events(socket, appname):
 
         def heartbeat_sender():
             nonlocal need_exit, socket_active_ts
-            interval = NGINX_READ_TIMEOUT - 3
+            interval = WS_HEARTBEAT_TIMEOUT - 3
             if interval <= 0:
-                interval = NGINX_READ_TIMEOUT
+                interval = WS_HEARTBEAT_TIMEOUT
 
             while need_exit is False:
                 now = time.time()
@@ -286,9 +286,9 @@ def build_app(socket, appname):
 
     def heartbeat_sender():
         nonlocal client_closed
-        interval = NGINX_READ_TIMEOUT - 3
+        interval = WS_HEARTBEAT_TIMEOUT - 3
         if interval <= 0:
-            interval = NGINX_READ_TIMEOUT
+            interval = WS_HEARTBEAT_TIMEOUT
 
         while client_closed is False:
             try:
@@ -422,9 +422,9 @@ def enter_pod(socket, appname):
 
     def heartbeat_sender():
         nonlocal need_exit
-        interval = NGINX_READ_TIMEOUT - 3
+        interval = WS_HEARTBEAT_TIMEOUT - 3
         if interval <= 0:
-            interval = NGINX_READ_TIMEOUT
+            interval = WS_HEARTBEAT_TIMEOUT
 
         try:
             while need_exit is False:

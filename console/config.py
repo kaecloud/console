@@ -31,7 +31,7 @@ APP_BUILD_TIMEOUT = 1800     # timeout for build image(30 minutes)
 
 # in order to avoid nginx to close the idle websocket connection,
 # we need to send heartbeat message to refresh the read timeout
-NGINX_READ_TIMEOUT = 60
+WS_HEARTBEAT_TIMEOUT = 60
 
 EMAIL_SENDER = ""
 EMAIL_SENDER_PASSWOORD = ""
