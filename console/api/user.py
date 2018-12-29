@@ -61,7 +61,8 @@ def login():
         if next_url:
             return redirect(next_url)
         return jsonify(user.to_dict())
-    redirect_uri = url_for('user.authorized', _external=True)
+    # always generate https redirect url
+    redirect_uri = url_for('user.authorized', _external=True, _scheme='https')
     session['next'] = next_url
     return oauth_client.authorize_redirect(redirect_uri)
 
