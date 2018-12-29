@@ -32,6 +32,10 @@ from console.config import (
 ws = create_api_blueprint('ws', __name__, url_prefix='ws', jsonize=False, handle_http_error=False)
 
 
+def send_ping(sock):
+    sock.send_frame("PP", sock.OPCODE_PING)
+
+
 def ws_user_require(privileged=False):
     def _user_require(func):
         @wraps(func)
@@ -141,7 +145,7 @@ def get_app_pods_events(socket, appname):
                     time.sleep(interval - (now - socket_active_ts))
                 else:
                     try:
-                        socket.send("PONG")
+                        send_ping(socket)
                         socket_active_ts = time.time()
                     except WebSocketError as e:
                         need_exit = True
@@ -289,7 +293,7 @@ def build_app(socket, appname):
         while client_closed is False:
             try:
                 time.sleep(interval)
-                socket.send("PONG")
+                send_ping(socket)
             except WebSocketError as e:
                 client_closed = True
                 return
@@ -427,7 +431,8 @@ def enter_pod(socket, appname):
                 time.sleep(interval)
                 try:
                     # send a null character to client
-                    socket.send('\0')
+                    logger.debug("send PING")
+                    send_ping(socket)
                 except WebSocketError as e:
                     need_exit = True
                     return
@@ -452,7 +457,7 @@ def enter_pod(socket, appname):
         except WebSocketError as e:
             logger.warn('client socket is closed')
         except Exception as e:
-            logger.warn("unknown exception {}".format(str(e)))
+            logger.warn("unknown exception: {}".format(str(e)))
         finally:
             need_exit = True
             logger.debug("exec output sender greenlet exit")
