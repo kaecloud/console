@@ -24,7 +24,6 @@ TEMPLATE_DIR = os.path.join(REPO_DIR, 'frontend/dist')
 PROJECT_NAME = LOGGER_NAME = 'console'
 CONFIG_ROOT_DIR = '/etc/kae-console'
 K8S_SECRETS_DIR = "/etc/k8s-secret-volume"
-CONTAINER_CONFIG_DIR = os.path.join(CONFIG_ROOT_DIR, "config")
 
 INGRESS_ANNOTATIONS_PREFIX = "nginx.ingress.kubernetes.io"
 APP_BUILD_TIMEOUT = 1800     # timeout for build image(30 minutes)
@@ -115,8 +114,6 @@ elif DFS_TYPE == 'nfs':
     }
 
 USER_CONFIG_FILENAME = os.path.join(K8S_SECRETS_DIR, "config.py")
-if not os.path.isfile(USER_CONFIG_FILENAME):
-    USER_CONFIG_FILENAME = os.path.join(CONTAINER_CONFIG_DIR, "config.py")
 if os.path.isfile(USER_CONFIG_FILENAME):
     exec(open(USER_CONFIG_FILENAME, encoding='utf-8').read())
 
@@ -185,48 +182,42 @@ def setup_config_from_secrets():
         src_secret = os.path.join(K8S_SECRETS_DIR, "id_rsa")
         src_known_hosts = os.path.join(K8S_SECRETS_DIR, "known_hosts")
 
-        secret = os.path.join(CONTAINER_CONFIG_DIR, "id_rsa")
-        known_hosts = os.path.join(CONTAINER_CONFIG_DIR, "known_hosts")
+        secret = os.path.expanduser("~/.ssh/id_rsa")
+        known_hosts = os.path.expanduser("~/.ssh/known_hosts")
 
-        shutil.copyfile(src_secret, secret)
+        pathlib.Path(os.path.dirname(secret)).mkdir(parents=True, exist_ok=True)
+
+        if not os.path.exists(secret):
+            shutil.copyfile(src_secret, secret)
         os.chmod(secret, 0o600)
 
         if setup_known_hosts:
-            shutil.copyfile(src_known_hosts, known_hosts)
+            if not os.path.exists(known_hosts):
+                shutil.copyfile(src_known_hosts, known_hosts)
             ssh_cmd = "ssh -q -o UserKnownHostsFile={} -i {}".format(known_hosts, secret)
         else:
             ssh_cmd = "ssh -q -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -i {}".format(secret)
         os.environ['GIT_SSH_COMMAND'] = ssh_cmd
 
     def setup_docker_config_json():
-        os.environ['DOCKER_CONFIG'] = CONTAINER_CONFIG_DIR
         src_docker_cfg = os.path.join(K8S_SECRETS_DIR, 'docker_config.json')
-        dst_docker_cfg = os.path.join(CONTAINER_CONFIG_DIR, 'config.json')
-        shutil.copyfile(src_docker_cfg, dst_docker_cfg)
+        dst_docker_cfg = os.path.expanduser('~/.docker/config.json')
+
+        if not os.path.exists(dst_docker_cfg):
+            pathlib.Path(os.path.dirname(dst_docker_cfg)).mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src_docker_cfg, dst_docker_cfg)
 
     def setup_kubeconfig():
         src_kubeconfig = os.path.join(K8S_SECRETS_DIR, 'kubeconfig')
         dst_kubeconfig = os.path.expanduser('~/.kube/config')
 
-        if not os.path.exists(src_kubeconfig):
-            return
-        pathlib.Path(os.path.dirname(dst_kubeconfig)).mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(src_kubeconfig, dst_kubeconfig)
-
-    pathlib.Path(CONTAINER_CONFIG_DIR).mkdir(parents=True, exist_ok=True)
+        if not os.path.exists(dst_kubeconfig):
+            pathlib.Path(os.path.dirname(dst_kubeconfig)).mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src_kubeconfig, dst_kubeconfig)
 
     setup_git_ssh()
     setup_docker_config_json()
     setup_kubeconfig()
-
-    # copy config.py
-    copy_map = {
-        'config.py': 'config.py'
-    }
-    for src, dst in copy_map.items():
-        full_src = os.path.join(K8S_SECRETS_DIR, src)
-        full_dst = os.path.join(CONTAINER_CONFIG_DIR, dst)
-        shutil.copyfile(full_src, full_dst)
 
 
 if getenv("PYTEST") is None:
