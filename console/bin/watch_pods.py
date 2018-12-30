@@ -7,7 +7,7 @@ from urllib3.exceptions import ProtocolError
 # must import celery before import tasks
 from console.app import celery
 from console.libs.utils import logger
-from console.libs.k8s import kube_api
+from console.libs.k8s import KubeApi
 from console.libs.utils import make_app_watcher_channel_name
 from console.libs.jsonutils import VersatileEncoder
 from console.tasks import handle_job_pod_event
@@ -27,7 +27,7 @@ class LongRunningWatcher(object):
         self.thread_map = {}
 
     def start(self):
-        for name in kube_api.cluster_names:
+        for name in KubeApi.instance().cluster_names:
             logger.info("create watcher thread for cluster {}".format(name))
             self.thread_map[name] = spawn(self.watch_app_job_pods, name)
 
@@ -45,9 +45,9 @@ class LongRunningWatcher(object):
         while True:
             try:
                 if last_seen_version is not None:
-                    watcher = kube_api.watch_pods(cluster_name=cluster, label_selector=label_selector, resource_version=last_seen_version)
+                    watcher = KubeApi.instance().watch_pods(cluster_name=cluster, label_selector=label_selector, resource_version=last_seen_version)
                 else:
-                    watcher = kube_api.watch_pods(cluster_name=cluster, label_selector=label_selector)
+                    watcher = KubeApi.instance().watch_pods(cluster_name=cluster, label_selector=label_selector)
 
                 for event in watcher:
                     obj = event['object']

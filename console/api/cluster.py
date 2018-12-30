@@ -1,5 +1,5 @@
 from console.libs.view import create_api_blueprint, user_require
-from console.libs.k8s import kube_api
+from console.libs.k8s import KubeApi
 
 bp = create_api_blueprint('cluster', __name__, 'cluster')
 
@@ -23,4 +23,4 @@ def list_cluster():
             "cluster2",
             ]
     """
-    return kube_api.cluster_names
+    return KubeApi.instance().cluster_names

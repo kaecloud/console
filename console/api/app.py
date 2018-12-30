@@ -20,7 +20,7 @@ from console.libs.utils import logger, make_canary_appname, bearychat_sendmsg
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
 from console.models import App, Release, SpecVersion, User, OPLog, OPType, AppYaml
 from console.libs.specs import fix_app_spec, app_specs_schema
-from console.libs.k8s import kube_api, KubeError
+from console.libs.k8s import KubeApi, KubeError
 from console.libs.k8s import ApiException
 from console.config import DEFAULT_REGISTRY, DEFAULT_APP_NS, BEARYCHAT_CHANNEL
 from console.ext import rds
@@ -113,7 +113,7 @@ def _get_canary_info(appname, cluster):
     ns = DEFAULT_APP_NS
     canary_appname = make_canary_appname(appname)
     with handle_k8s_error("Error when get app {} canary".format(appname)):
-        dp = kube_api.get_deployment(canary_appname, cluster_name=cluster, ignore_404=True, namespace=ns)
+        dp = KubeApi.instance().get_deployment(canary_appname, cluster_name=cluster, ignore_404=True, namespace=ns)
     info = {}
     if dp is None:
         info['status'] = False
@@ -253,7 +253,7 @@ def rollback_app(args, appname):
             abort(403, "Please delete canary release before rollback app")
 
         with handle_k8s_error("failed to get kubernetes deployment of app {}".format(appname)):
-            k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, namespace=ns)
+            k8s_deployment = KubeApi.instance().get_deployment(appname, cluster_name=cluster, namespace=ns)
 
         version = k8s_deployment.metadata.resource_version
         release_tag = k8s_deployment.metadata.annotations['release_tag']
@@ -283,7 +283,7 @@ def rollback_app(args, appname):
             specs.service.replicas = k8s_deployment.spec.replicas
 
         with handle_k8s_error('Error when update app({}:{})'.format(appname, version)):
-            kube_api.update_app(
+            KubeApi.instance().update_app(
                 appname, specs, prev_release.tag, cluster_name=cluster,
                 version=version, renew_id=renew_id, namespace=ns)
 
@@ -326,7 +326,7 @@ def renew_app(args, appname):
 
     with lock_app(appname):
         with handle_k8s_error("Error when renew app {}".format(appname)):
-            kube_api.renew_app(appname, cluster_name=cluster, namespace=ns)
+            KubeApi.instance().renew_app(appname, cluster_name=cluster, namespace=ns)
 
     OPLog.create(
         user_id=g.user.id,
@@ -366,7 +366,7 @@ def delete_app(appname):
 
     with lock_app(appname):
         with handle_k8s_error("Error when delete app {}".format(appname)):
-            kube_api.undeploy_app(appname, app.type, ignore_404=True, cluster_name=kube_api.ALL_CLUSTER, namespace=ns)
+            KubeApi.instance().undeploy_app(appname, app.type, ignore_404=True, cluster_name=KubeApi.ALL_CLUSTER, namespace=ns)
     app.delete()
 
     OPLog.create(
@@ -519,7 +519,7 @@ def get_app_pod_log(args, appname, podname):
     if container:
         kwargs['container'] = container
     with handle_k8s_error("Error when get app pods ({})".format(appname)):
-        data = kube_api.get_pod_log(podname, **kwargs)
+        data = KubeApi.instance().get_pod_log(podname, **kwargs)
         return {'data': data}
 
 
@@ -555,7 +555,7 @@ def get_app_pods(args, appname):
         name = "{}-canary".format(appname)
 
     with handle_k8s_error("Error when get app pods ({})".format(appname)):
-        return kube_api.get_app_pods(name=name, cluster_name=cluster, namespace=ns)
+        return KubeApi.instance().get_app_pods(name=name, cluster_name=cluster, namespace=ns)
 
 
 @bp.route('/<appname>/deployment')
@@ -590,7 +590,7 @@ def get_app_k8s_deployment(args, appname):
         abort(404, "app {} not found".format(appname))
 
     with handle_k8s_error("Error when get kubernetes deployment object"):
-        return kube_api.get_deployment(name, cluster_name=cluster, namespace=ns)
+        return KubeApi.instance().get_deployment(name, cluster_name=cluster, namespace=ns)
 
 
 @bp.route('/<appname>/releases')
@@ -837,7 +837,7 @@ def create_secret(args, appname):
     # check if the user can access the App
     get_app_raw(appname)
     with handle_k8s_error("Failed to create secret"):
-        kube_api.create_or_update_secret(appname, data, replace=replace, cluster_name=cluster, namespace=ns)
+        KubeApi.instance().create_or_update_secret(appname, data, replace=replace, cluster_name=cluster, namespace=ns)
     return DEFAULT_RETURN_VALUE
 
 
@@ -871,7 +871,7 @@ def get_secret(args, appname):
     # check if the user can access the App
     get_app_raw(appname)
     with handle_k8s_error("Failed to get secret"):
-        return kube_api.get_secret(appname, cluster_name=cluster, namespace=ns)
+        return KubeApi.instance().get_secret(appname, cluster_name=cluster, namespace=ns)
 
 
 @bp.route('/<appname>/configmap', methods=['POST'])
@@ -907,7 +907,7 @@ def create_config_map(args, appname):
     # check if the user can access the App
     get_app_raw(appname)
     with handle_k8s_error("Failed to create config map"):
-        kube_api.create_or_update_config_map(appname, cm_data, replace=replace, cluster_name=cluster, namespace=ns)
+        KubeApi.instance().create_or_update_config_map(appname, cm_data, replace=replace, cluster_name=cluster, namespace=ns)
     return DEFAULT_RETURN_VALUE
 
 
@@ -941,7 +941,7 @@ def get_config_map(args, appname):
     # check if the user can access the App
     get_app_raw(appname)
     with handle_k8s_error("Failed to get config map"):
-        raw_data = kube_api.get_config_map(appname, cluster_name=cluster, namespace=ns)
+        raw_data = KubeApi.instance().get_config_map(appname, cluster_name=cluster, namespace=ns)
         return raw_data
 
 
@@ -1213,7 +1213,7 @@ def scale_app(args, appname):
 
     with lock_app(appname):
         with handle_k8s_error("Error when get deployment"):
-            k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, namespace=ns)
+            k8s_deployment = KubeApi.instance().get_deployment(appname, cluster_name=cluster, namespace=ns)
 
         release_tag = k8s_deployment.metadata.annotations['release_tag']
         version = k8s_deployment.metadata.resource_version
@@ -1245,7 +1245,7 @@ def scale_app(args, appname):
             renew_id = k8s_deployment.spec.template.metadata.annotations.get("renew_id", None)
 
         with handle_k8s_error("Error when scale app {}".format(appname)):
-            kube_api.update_app(appname, specs, release_tag, version=version,
+            KubeApi.instance().update_app(appname, specs, release_tag, version=version,
                                 renew_id=renew_id, cluster_name=cluster, namespace=ns)
 
     OPLog.create(
@@ -1334,7 +1334,7 @@ def deploy_app(args, appname):
             abort(404, 'release {} not found.'.format(tag))
 
         with handle_k8s_error("Error when get deployment"):
-            k8s_deployment = kube_api.get_deployment(appname, cluster_name=cluster, ignore_404=True, namespace=ns)
+            k8s_deployment = KubeApi.instance().get_deployment(appname, cluster_name=cluster, ignore_404=True, namespace=ns)
 
         specs = app_yaml.specs
         fix_app_spec(specs, appname, tag)
@@ -1361,7 +1361,7 @@ def deploy_app(args, appname):
         secret_keys = get_spec_secret_keys(specs)
         if len(secret_keys) > 0:
             try:
-                secret_data = kube_api.get_secret(appname, cluster_name=cluster, namespace=ns)
+                secret_data = KubeApi.instance().get_secret(appname, cluster_name=cluster, namespace=ns)
             except ApiException as e:
                 if e.status == 404:
                     abort(403, "please set secret for app {}".format(appname))
@@ -1374,7 +1374,7 @@ def deploy_app(args, appname):
         configmap_keys = get_spec_configmap_keys(specs)
         if len(configmap_keys) > 0:
             try:
-                cm_data = kube_api.get_config_map(appname, cluster_name=cluster, namespace=ns)
+                cm_data = KubeApi.instance().get_config_map(appname, cluster_name=cluster, namespace=ns)
             except ApiException as e:
                 if e.status == 404:
                     abort(403, "please set configmap for app {}".format(appname))
@@ -1391,7 +1391,7 @@ def deploy_app(args, appname):
             abort(500, "internal server error")
 
         try:
-            kube_api.deploy_app(specs, release.tag, cluster_name=cluster, namespace=ns)
+            KubeApi.instance().deploy_app(specs, release.tag, cluster_name=cluster, namespace=ns)
         except KubeError as e:
             abort(403, "Deploy Error: {}".format(str(e)))
         except ApiException as e:
@@ -1433,14 +1433,14 @@ def undeploy_app(args, appname):
           application/json:
             error: null
     """
-    cluster = args.get('cluster', kube_api.ALL_CLUSTER)
+    cluster = args.get('cluster', KubeApi.ALL_CLUSTER)
     app = get_app_raw(appname)
     tag = app.latest_release.tag if app.latest_release else ""
 
     ns = DEFAULT_APP_NS
     with lock_app(appname):
         with handle_k8s_error("Error when undploy app {}".format(appname)):
-            kube_api.undeploy_app(appname, app.type, ignore_404=True, cluster_name=cluster, namespace=ns)
+            KubeApi.instance().undeploy_app(appname, app.type, ignore_404=True, cluster_name=cluster, namespace=ns)
             OPLog.create(
                 user_id=g.user.id,
                 app_id=app.id,
@@ -1549,7 +1549,7 @@ def deploy_app_canary(args, appname):
         secret_keys = get_spec_secret_keys(specs)
         if len(secret_keys) > 0:
             try:
-                secret_data = kube_api.get_secret(appname, cluster_name=cluster, namespace=ns)
+                secret_data = KubeApi.instance().get_secret(appname, cluster_name=cluster, namespace=ns)
             except ApiException as e:
                 if e.status == 404:
                     abort(403, "please set secret for app {}".format(appname))
@@ -1562,7 +1562,7 @@ def deploy_app_canary(args, appname):
         configmap_keys = get_spec_configmap_keys(specs)
         if len(configmap_keys) > 0:
             try:
-                cm_data = kube_api.get_config_map(appname, cluster_name=cluster, namespace=ns)
+                cm_data = KubeApi.instance().get_config_map(appname, cluster_name=cluster, namespace=ns)
             except ApiException as e:
                 if e.status == 404:
                     abort(403, "please set configmap for app {}".format(appname))
@@ -1572,7 +1572,7 @@ def deploy_app_canary(args, appname):
             if len(diff_keys) > 0:
                 abort(403, "%s are not in configmap" % str(diff_keys))
         try:
-            kube_api.deploy_app_canary(specs, release.tag, cluster_name=cluster, namespace=ns)
+            KubeApi.instance().deploy_app_canary(specs, release.tag, cluster_name=cluster, namespace=ns)
         except KubeError as e:
             abort(403, "Deploy Canary Error: {}".format(str(e)))
         except ApiException as e:
@@ -1617,7 +1617,7 @@ def undeploy_app_canary(args, appname):
             abort(403, 'You\'re not granted to this app, ask administrators for permission')
 
         with handle_k8s_error("Error when delete app canary {}".format(appname)):
-            kube_api.undeploy_app_canary(appname, cluster_name=cluster, ignore_404=True, namespace=ns)
+            KubeApi.instance().undeploy_app_canary(appname, cluster_name=cluster, ignore_404=True, namespace=ns)
 
         OPLog.create(
             user_id=g.user.id,
@@ -1707,7 +1707,7 @@ def set_app_abtesting_rules(args, appname):
         abort(403, "you must deploy canary version before adding abtesting rules")
 
     with handle_k8s_error("Error when add abtesting rules"):
-        kube_api.set_abtesting_rules(appname, rules, cluster_name=cluster, namespace=ns)
+        KubeApi.instance().set_abtesting_rules(appname, rules, cluster_name=cluster, namespace=ns)
     return DEFAULT_RETURN_VALUE
 
 
@@ -1760,7 +1760,7 @@ def get_app_abtesting_rules(args, appname):
         abort(403, 'You\'re not granted to this app, ask administrators for permission')
 
     with handle_k8s_error("Error when get abtesting rules"):
-        rules = kube_api.get_abtesting_rules(appname, cluster_name=cluster, namespace=ns)
+        rules = KubeApi.instance().get_abtesting_rules(appname, cluster_name=cluster, namespace=ns)
 
     if rules is None:
         abort(404, "not found")
@@ -1789,6 +1789,6 @@ def stop_container(args, appname):
         abort(403, 'You\'re not granted to this app, ask administrators for permission')
 
     with handle_k8s_error("Error when stop container"):
-        rules = kube_api.stop_container(podname, cluster_name=cluster, namespace=namespace, container=container)
+        rules = KubeApi.instance().stop_container(podname, cluster_name=cluster, namespace=namespace, container=container)
 
     return DEFAULT_RETURN_VALUE

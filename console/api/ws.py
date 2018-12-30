@@ -16,7 +16,7 @@ from console.libs.utils import (
     build_image_helper, BuildError
 )
 from console.libs.jsonutils import VersatileEncoder
-from console.libs.k8s import kube_api, ApiException
+from console.libs.k8s import KubeApi, ApiException
 from console.libs.validation import (
     build_args_schema, cluster_args_schema, cluster_canary_schema, pod_entry_schema
 )
@@ -113,7 +113,7 @@ def get_app_pods_events(socket, appname):
     # since this request may pend long time, so we remove the db session
     # otherwise we may get error like `sqlalchemy.exc.TimeoutError: QueuePool limit of size 50 overflow 10 reached, connection timed out`
     with session_removed():
-        pod_list = kube_api.get_app_pods(name, cluster_name=cluster, namespace=ns)
+        pod_list = KubeApi.instance().get_app_pods(name, cluster_name=cluster, namespace=ns)
         pods = pod_list.to_dict()
         for item in pods['items']:
             data = {
@@ -370,14 +370,14 @@ def get_job_log_events(socket, jobname):
         return
     with session_removed():
         try:
-            pods = kube_api.get_job_pods(jobname, namespace=ns)
+            pods = KubeApi.instance().get_job_pods(jobname, namespace=ns)
         except ApiException as e:
             socket.send(json.dumps({"error": "Error when get job pods: {}".format(str(e))}))
             return
         if pods.items:
             podname = pods.items[0].metadata.name
             try:
-                for line in kube_api.follow_pod_log(podname=podname, namespace=ns):
+                for line in KubeApi.instance().follow_pod_log(podname=podname, namespace=ns):
                     socket.send(json.dumps({'data': line}))
             except ApiException as e:
                 socket.send(json.dumps({"error": "Error when follow job log, please retry: {}".format(str(e))}))
@@ -417,7 +417,7 @@ def enter_pod(socket, appname):
     cluster = args['cluster']
     namespace = args['namespace']
     container = args.get('container', None)
-    sh = kube_api.exec_shell(podname, namespace=namespace, cluster_name=cluster, container=container)
+    sh = KubeApi.instance().exec_shell(podname, namespace=namespace, cluster_name=cluster, container=container)
     need_exit = False
 
     def heartbeat_sender():

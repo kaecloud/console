@@ -31,7 +31,7 @@ class KubeError(Exception):
         return self.msg
 
 
-class KubernetesApi(object):
+class KubeApi(object):
     _INSTANCE = None
     ALL_CLUSTER = "__all_cluster__"
     DEFAULT_CLUSTER = "__default_cluster__"
@@ -904,4 +904,3 @@ class ClientApiBundle(object):
         return obj
 
 
-kube_api = KubernetesApi.instance()

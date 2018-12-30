@@ -5,7 +5,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from console.config import TASK_PUBSUB_CHANNEL, APP_BUILD_TIMEOUT
 from console.ext import rds, db
 from console.libs.utils import logger, save_job_log, BuildError, build_image_helper, make_errmsg
-from console.libs.k8s import kube_api, ApiException
+from console.libs.k8s import KubeApi, ApiException
 from console.models import Release, Job
 
 
@@ -63,7 +63,7 @@ def handle_job_pod_event(jobname, obj):
 @current_app.task
 def save_pod_log(jobname, podname, version=0):
     try:
-        resp = kube_api.get_pod_log(podname=podname)
+        resp = KubeApi.instance().get_pod_log(podname=podname)
     except ApiException as e:
         if e.status == 404:
             return

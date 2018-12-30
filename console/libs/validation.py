@@ -5,7 +5,7 @@ from humanfriendly import parse_size, InvalidSize
 from marshmallow import Schema, validates_schema, ValidationError, fields
 from numbers import Number
 
-from console.libs.k8s import kube_api
+from console.libs.k8s import KubeApi
 
 
 class StrictSchema(Schema):
@@ -204,7 +204,7 @@ def validate_cpu_dict(dd):
 
 
 def validate_cluster_name(cluster):
-    if kube_api.cluster_exist(cluster) is False:
+    if KubeApi.instance().cluster_exist(cluster) is False:
         raise ValidationError("cluster {} not exists".format(cluster))
 
 
