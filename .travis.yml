@@ -1,0 +1,33 @@
+sudo: false
+language: python
+python:
+- '3.6'
+services:
+- docker
+# before_script:
+# - apt-get install build-essenitial
+
+jobs:
+  include:
+  - stage: unittest
+    before_script:
+      # - tests/up.sh
+      - pip install pipenv
+      - pipenv sync --dev
+    script:
+    - PYTEST=1 pytest
+
+  - stage: build and push docker image
+    if: tag IS present
+    script:
+      - echo $TRAVIS_TAG
+      - echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+      - docker build -t kaecloud/console:latest .
+      - docker tag kaecloud/console:latest kaecloud/console:$TRAVIS_TAG
+      - docker images
+      - docker push kaecloud/console:$TRAVIS_TAG
+      - docker push kaecloud/console:latest
+env:
+  global:
+  - secure: Hd0FggZdceh6krlsQriXs/nnHjUbrb3dgmzf4Z+XQK6sgKM1+JkhCgaqMoRNAIA0DoirjEsKWWWbVGF0A1sdeo/pcfO+N4SlUoV6BBTGbzjjBiHGv0uDp2HE2iEDZlTVNdLIIYBPnNCVnt/4irCzvBRFLCAobNJcbDv1LSk34ooy2ZobJZCkGpbBYrwNhL0Aup1Ease2uraNgZfw3pKQWUb8DcFU5/ziz//In9kc4dfqW/6HsiCZAkYSPvdmc1+vRQrUnLui4M0H5Bn4a51OukPyaDEFc7//Rzsf97LElsUAQwFxETQ9BEHq4x5X+NhAN/3PMO/NI5siZ4MjfhwWZJztggagOwe2Urmt+1DGm8Kx5p/SjsB4wDpm+jVNsKA0plvosV6c+l77/SypYBfOuY4wsUqxaJ3XY2UFuO8svLI/cObR55aOVhxwJidYqUCthGpgwwH+y+/osJRB1e0md6tEgSAqrViEP/Yi4tXUCoDjnLz0vmX6ylpVCayyIkJ/I6L1C5SmzRB1vqZmCUGn3j/1DZxfDgIn5WPBc1EEJx4XLhNas2w9Y4oNb/8vNRemw2eA+5OkKm/cbeYLY/nlrqYLJ+ixpk3BxrYj9ZTfQKpRq33912E2EWOZr8666xcwHz8FJrr26KCnK9cWIqMPnLqdexKmDGT/Zt/ETHRX7MY=
+  - secure: hBjWLVwkQ/yFpNPGaQzNLtYRzHCtbax0OH2psyr2E9HkQmlw5f8iGPiowfKu+ugOzxcm6Tq3eYWT88ARpTvXtorFaAxoRrpYAtfzR4s0aSG7Xcdmr5oNtR2O/tXc11wGAHGWpJbl40cXUs+9nWi1nmLbsZK78dZotycr24s3DEkTcw5lHk/FyaaIx1ymPYo2iJdf5TKiQE4JWkN5mJpSad/l55Qbj315dqMOcDsLJIX2/vFELrHmreB5W2ib+BiiW+4zjZT+WXlumzeIOQzSai1aa7fBNzfjCl8vyW/zT6gn54jtGYooKUI3t5v3/sDSxArDR9egdPUmYyBYfIDczsbCvjzWKhqwWSIWzXPRXeehsh/nEXs/VDrWCJ/kyIy2fDuj8JcybOZpzef7b5M2AwrxL0gHH1FkeamJphTppBV7rQYIcoghjoXhsezXdzm/Jsy+/Hch21n3FwU7pE8MCCoftKYXDJnNh2dBQ+euUaWSP1YHoxzbVx6pW/WCpBfqq6oOxCOybVO7HnN8Y6nrL4oTTOFLIzAOzTUOYXqzId6GNXGmZ7Szczphe7MH9uAjWO0Cf3hQ/wTt6anWu+XNjx9xk6fc7+ZlJLXKILKVUcWceHhinr7SYfORgix3X0JPwJergfF/r7/2/pt6wxxj2ayllmeh+lS4JQSVmnFIG08=
