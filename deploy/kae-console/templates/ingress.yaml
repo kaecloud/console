@@ -4,7 +4,6 @@ metadata:
   name: kae-console
   namespace: kae
   annotations:
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
 spec:
   tls:

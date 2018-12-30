@@ -20,3 +20,4 @@ secret.json
 .idea/
 /config/
 /dist
+/celerybeat-schedule
