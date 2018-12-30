@@ -7,10 +7,11 @@ ADD . /kae/app
 WORKDIR /kae/app
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories && \
     apk update && \
-    apk add --no-cache gcc musl-dev python3-dev libffi-dev openssl-dev linux-headers alpine-sdk libstdc++ && \
-	pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt && \
-	apk del alpine-sdk && \
-	apk add --no-cache git openssh
+    apk add --no-cache libffi-dev openssl-dev alpine-sdk && \
+    pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ pipenv && \
+    pipenv install --system --deploy && \
+	  apk del alpine-sdk && \
+	  apk add --no-cache git openssh
 
 EXPOSE 5000
 
