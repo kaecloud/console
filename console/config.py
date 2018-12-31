@@ -18,12 +18,13 @@ FAKE_USER = {
 }
 
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-STATIC_DIR = os.path.join(REPO_DIR, 'frontend/dist/static')
-TEMPLATE_DIR = os.path.join(REPO_DIR, 'frontend/dist')
 
 PROJECT_NAME = LOGGER_NAME = 'console'
 CONFIG_ROOT_DIR = '/etc/kae-console'
-K8S_SECRETS_DIR = "/etc/k8s-secret-volume"
+CONSOLE_CONFIG_PATHS = [
+    os.path.join(CONFIG_ROOT_DIR, "config.py"),
+    os.path.join(REPO_DIR, "local_config.py"),
+]
 
 INGRESS_ANNOTATIONS_PREFIX = "nginx.ingress.kubernetes.io"
 APP_BUILD_TIMEOUT = 1800     # timeout for build image(30 minutes)
@@ -44,7 +45,7 @@ DEFAULT_NS = getenv('DEFAULT_NS', default='kae')
 DEFAULT_APP_NS = getenv('DEFAULT_APP_NS', default='kae-app')
 DEFAULT_JOB_NS = getenv('DEFAULT_JOB_NS', default='kae-job')
 
-SQLALCHEMY_DATABASE_URI = getenv('SQLALCHEMY_DATABASE_URI', default="'mysql+pymysql://kae:123@127.0.0.1:3306/console?charset=utf8mb4'")
+SQLALCHEMY_DATABASE_URI = getenv('SQLALCHEMY_DATABASE_URI', default="mysql+pymysql://root@127.0.0.1:3306/kaetest?charset=utf8mb4")
 SQLALCHEMY_TRACK_MODIFICATIONS = getenv('SQLALCHEMY_TRACK_MODIFICATIONS', default=True, type=bool)
 SQLALCHEMY_POOL_SIZE = getenv('SQLALCHEMY_POOL_SIZE', default=30)
 SQLALCHEMY_MAX_OVERFLOW = getenv('SQLALCHEMY_MAX_OVERFLOW', default=10)
@@ -113,9 +114,9 @@ elif DFS_TYPE == 'nfs':
         }
     }
 
-USER_CONFIG_FILENAME = os.path.join(K8S_SECRETS_DIR, "config.py")
-if os.path.isfile(USER_CONFIG_FILENAME):
-    exec(open(USER_CONFIG_FILENAME, encoding='utf-8').read())
+for console_cfg in CONSOLE_CONFIG_PATHS:
+    if os.path.isfile(console_cfg):
+        exec(open(console_cfg, encoding='utf-8').read())
 
 if SQLALCHEMY_DATABASE_URI is None:
     raise ValueError("SQLALCHEMY_DATABASE_URI can't be None")
@@ -179,8 +180,8 @@ pathlib.Path(REPO_DATA_DIR).mkdir(parents=True, exist_ok=True)
 def setup_config_from_secrets():
     # prepare for git command
     def setup_git_ssh(setup_known_hosts=False):
-        src_secret = os.path.join(K8S_SECRETS_DIR, "id_rsa")
-        src_known_hosts = os.path.join(K8S_SECRETS_DIR, "known_hosts")
+        src_secret = os.path.join(CONFIG_ROOT_DIR, "id_rsa")
+        src_known_hosts = os.path.join(CONFIG_ROOT_DIR, "known_hosts")
 
         secret = os.path.expanduser("~/.ssh/id_rsa")
         known_hosts = os.path.expanduser("~/.ssh/known_hosts")
@@ -200,7 +201,7 @@ def setup_config_from_secrets():
         os.environ['GIT_SSH_COMMAND'] = ssh_cmd
 
     def setup_docker_config_json():
-        src_docker_cfg = os.path.join(K8S_SECRETS_DIR, 'docker_config.json')
+        src_docker_cfg = os.path.join(CONFIG_ROOT_DIR, 'docker_config.json')
         dst_docker_cfg = os.path.expanduser('~/.docker/config.json')
 
         if not os.path.exists(dst_docker_cfg):
@@ -208,7 +209,7 @@ def setup_config_from_secrets():
             shutil.copyfile(src_docker_cfg, dst_docker_cfg)
 
     def setup_kubeconfig():
-        src_kubeconfig = os.path.join(K8S_SECRETS_DIR, 'kubeconfig')
+        src_kubeconfig = os.path.join(CONFIG_ROOT_DIR, 'kubeconfig')
         dst_kubeconfig = os.path.expanduser('~/.kube/config')
 
         if not os.path.exists(dst_kubeconfig):

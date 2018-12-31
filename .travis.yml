@@ -4,14 +4,15 @@ python:
 - '3.6'
 services:
 - docker
-# before_script:
-# - apt-get install build-essenitial
+- mysql
+- redis-server
 
 jobs:
   include:
   - stage: unittest
     before_script:
       # - tests/up.sh
+      - mysql -e 'CREATE DATABASE kaetest;'
       - pip install pipenv
       - pipenv sync --dev
     script:

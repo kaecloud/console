@@ -18,6 +18,8 @@ set -e
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+
 if test -e kubectl; then
   echo "skipping download of kubectl"
 else
@@ -57,13 +59,12 @@ echo "copying docker image to cluster..."
 ${DIR}/dind-cluster-v1.11.sh copy-image ${DEV_IMAGE}
 
 docker run --name kae-console-test -it --rm --network host \
-       -v `pwd`/config/dev:/etc/k8s-secret-volume \
+       -v `pwd`/config/dev:/etc/kae-console \
        -v /var/run/docker.sock:/var/run/docker.sock \
+       -v $HOME/.docker/config.json:/root/.docker/config.json \
        -v $HOME/.kube/config:/root/.kube/config \
        -v `pwd`:/kae/app  \
        ${DEV_IMAGE}
 
 docker exec -d kae-console-test sh bin/run-pods-watcher
 docker exec -d kae-console-test  C_FORCE_ROOT=1 celery -A console.app:celery worker --autoscale=4,1 -B
-
-

@@ -15,7 +15,7 @@ from flasgger import Swagger
 from werkzeug.utils import import_string
 
 from console.config import (
-    DEBUG, SENTRY_DSN, STATIC_DIR, TEMPLATE_DIR, TASK_PUBSUB_CHANNEL,
+    DEBUG, SENTRY_DSN, TASK_PUBSUB_CHANNEL,
     TASK_PUBSUB_EOF, BEARYCHAT_CHANNEL,
 )
 from console.ext import sess, db, mako, cache, init_oauth, rds, sockets

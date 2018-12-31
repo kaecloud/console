@@ -8,22 +8,9 @@ import yaml
 from console.libs.specs import app_specs_schema
 
 
-# core_online = False
-# try:
-#     for zone in ZONE_CONFIG.values():
-#         ip, port = zone['CORE_URL'].split(':')
-#         Telnet(ip, port).close()
-#         core_online = True
-# except ConnectionRefusedError:
-#     core_online = False
-
-
-def fake_sha(length):
-    return ''.join(random.choice(string.hexdigits.lower()) for _ in range(length))
-
-
-default_appname = 'test-app'
-default_sha = fake_sha(40)
+default_appname = "test-app"
+default_git = "https://github.com/kaecloud/hello-world.git"
+default_tag = "v0.0.1"
 
 default_builds = """
 default_build:                            # image name
@@ -70,24 +57,32 @@ secrets:
 
 default_specs_text = """
 appname: hello
-git: yangyu0.github.com
 type: web
-
+builds:
+- name: hello
 service:
   user: root
   replicas: 2
   labels:
     - proctype=router
-
   mountpoints:
-    - a.external.domain1/b/c
+    - host: test.kae.com
+      path: /
   ports:
   - port: 80
     targetPort: 8080
 
   containers:
   - name: hello-world
-    image: yuyang0/hello-world
+    # image: registry.cn-hangzhou.aliyuncs.com/kae/hello:0.1.1
+    imagePullPolicy: Always
+    # args: ["xx", "xx"]
+    command: ['hello-world']
+    env:                     # environments
+      - ENVA=a
+    tty: false               # whether allocate tty
+    # workingDir: xxx          # working dir
+
     ports:
     - containerPort: 8080
 """
