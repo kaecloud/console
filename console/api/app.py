@@ -14,7 +14,7 @@ from console.libs.validation import (
     RegisterSchema, CreateAppArgsSchema, UserSchema, RollbackSchema, SecretArgsSchema, ConfigMapArgsSchema,
     ScaleSchema, DeploySchema, ClusterArgSchema, OptionalClusterArgSchema, ABTestingSchema,
     ClusterCanarySchema, SpecsArgsSchema, AppYamlArgsSchema, PaginationSchema, PodLogArgsSchema,
-    PodEntryArgsSchema,
+    PodEntryArgsSchema, AppCanaryWeightArgSchema,
 )
 from console.libs.utils import logger, make_canary_appname, bearychat_sendmsg
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
@@ -591,6 +591,39 @@ def get_app_k8s_deployment(args, appname):
 
     with handle_k8s_error("Error when get kubernetes deployment object"):
         return KubeApi.instance().get_deployment(name, cluster_name=cluster, namespace=ns)
+
+
+@bp.route('/<appname>/ingress')
+@use_args(ClusterArgSchema())
+@user_require(False)
+def get_app_k8s_ingress(args, appname):
+    """
+    Get kubernetes ingress object of the specified app
+    ---
+    parameters:
+      - name: appname
+        in: path
+        type: string
+        required: true
+      - name: cluster
+        in: query
+        type: string
+        required: true
+    responses:
+      200:
+        description: Ingress object
+        examples:
+          application/json: [
+          ]
+    """
+    cluster = args['cluster']
+    app = get_app_raw(appname)
+    ns = DEFAULT_APP_NS
+    if not app:
+        abort(404, "app {} not found".format(appname))
+
+    with handle_k8s_error("Error when get kubernetes ingress object"):
+        return KubeApi.instance().get_ingress(appname, cluster_name=cluster, namespace=ns)
 
 
 @bp.route('/<appname>/releases')
@@ -1592,7 +1625,7 @@ def deploy_app_canary(args, appname):
         return DEFAULT_RETURN_VALUE
 
 
-@bp.route('/<appname>/canary/undeploy', methods=['DELETE'])
+@bp.route('/<appname>/canary', methods=['DELETE'])
 @use_args(ClusterArgSchema())
 @user_require(False)
 def undeploy_app_canary(args, appname):
@@ -1626,6 +1659,45 @@ def undeploy_app_canary(args, appname):
             cluster=cluster,
             # tag=release.tag,
             action=OPType.UNDEPLOY_APP_CANARY,
+        )
+        return DEFAULT_RETURN_VALUE
+
+
+@bp.route('/<appname>/canary/weight', methods=['POST'])
+@use_args(AppCanaryWeightArgSchema())
+@user_require(False)
+def set_app_canary_weight(args, appname):
+    """
+    delete app canary release in kubernetes
+    ---
+    """
+    cluster = args['cluster']
+    weight = args['weight']
+
+    ns = DEFAULT_APP_NS
+
+    app = App.get_by_name(appname)
+    if not app:
+        abort(404, 'app {} not found'.format(appname))
+
+    with lock_app(appname):
+        canary_info = _get_canary_info(appname, cluster)
+        if not canary_info['status']:
+            abort(403, "canary release not found")
+
+        if not g.user.granted_to_app(app):
+            abort(403, 'You\'re not granted to this app, ask administrators for permission')
+
+        with handle_k8s_error("Error when set app canary weight {}".format(appname)):
+            KubeApi.instance().set_traefik_weight(appname, weight, cluster_name=cluster, namespace=ns)
+
+        OPLog.create(
+            user_id=g.user.id,
+            app_id=app.id,
+            appname=appname,
+            cluster=cluster,
+            # tag=release.tag,
+            action=OPType.SET_APP_CANARY_WEIGHT,
         )
         return DEFAULT_RETURN_VALUE
 

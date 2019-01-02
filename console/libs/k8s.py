@@ -376,19 +376,51 @@ class ClientApiBundle(object):
         full_rules = json.loads(full_rules_str)
         return full_rules.get("rules", None)
 
+    def set_traefik_weight(self, appname, weight, namespace="default"):
+        canary_appname = make_canary_appname(appname)
+        annotations_key = "traefik.ingress.kubernetes.io/service-weights"
+        annotations_val = "{}: {}%\n".format(canary_appname, weight)
+        ing = self.extensions_api.read_namespaced_ingress(appname, namespace=namespace)
+        annotations = ing.metadata.annotations if ing.metadata.annotations else {}
+        # if this is the first time to set traffic weight, then we need add backend
+        if annotations_key not in annotations:
+            for rule in ing.spec.rules:
+                extra_paths = []
+                for path in rule.http.paths:
+                    canary_path = copy.deepcopy(path)
+                    canary_path.backend.service_name = canary_appname
+                    extra_paths.append(canary_path)
+                rule.http.paths.extend(extra_paths)
+
+        annotations[annotations_key] = annotations_val
+        ing.metadata.annotations = annotations
+        self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=namespace)
+
     def undeploy_app_canary(self, appname, namespace="default", ignore_404=False):
         canary_appname = make_canary_appname(appname)
-        annotations_key = "{}/abtesting".format(INGRESS_ANNOTATIONS_PREFIX)
+        delete_keys = [
+            "{}/abtesting".format(INGRESS_ANNOTATIONS_PREFIX),
+            "traefik.ingress.kubernetes.io/service-weights",
+        ]
         # remove abtesting rules
         try:
             ing = self.extensions_api.read_namespaced_ingress(appname, namespace=namespace)
 
             annotations = ing.metadata.annotations if ing.metadata.annotations else {}
-            if annotations_key in annotations:
-                ing.metadata.annotations.pop(annotations_key)
-                self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=namespace)
-                # the nginx-ingress needs about 1 seconds to detect the change of the ingress
-                time.sleep(1)
+            for k in delete_keys:
+                if k in annotations:
+                    ing.metadata.annotations.pop(k)
+            for rule in ing.spec.rules:
+                need_delete = []
+                for path in rule.http.paths:
+                    if path.backend.service_name == canary_appname:
+                        need_delete.append(path)
+                for path in need_delete:
+                    rule.http.paths.remove(path)
+
+            self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=namespace)
+            # the nginx-ingress needs about 1 seconds to detect the change of the ingress
+            time.sleep(1)
         except ApiException as e:
             if not (e.status == 404 and ignore_404 is True):
                 raise e
@@ -483,6 +515,21 @@ class ClientApiBundle(object):
         """
         try:
             return self.extensions_api.read_namespaced_deployment(name=name, namespace=namespace)
+        except ApiException as e:
+            if e.status == 404 and ignore_404 is True:
+                return None
+            else:
+                raise e
+
+    def get_ingress(self, name, namespace='default', ignore_404=False):
+        """
+        get kubernetes deployment object
+        :param name:
+        :param namespace:
+        :return:
+        """
+        try:
+            return self.extensions_api.read_namespaced_ingress(name=name, namespace=namespace)
         except ApiException as e:
             if e.status == 404 and ignore_404 is True:
                 return None

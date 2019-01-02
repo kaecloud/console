@@ -27,6 +27,11 @@ def validate_positive_integer(i):
         raise ValidationError("Need a positive integer")
 
 
+def validate_weight(i):
+    if i <= 0 or i > 100:
+        raise ValidationError("invalid percent value")
+
+
 def validate_appname(name):
     regex = re.compile(r'[a-zA-Z_][\w-]*$')
     if regex.match(name) is None:
@@ -302,6 +307,11 @@ class SpecsArgsSchema(StrictSchema):
 class ClusterCanarySchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
     canary = fields.Bool(missing=False)
+
+
+class AppCanaryWeightArgSchema(StrictSchema):
+    cluster = fields.Str(required=True, validate=validate_cluster_name)
+    weight = fields.Int(required=True, validate=validate_weight)
 
 
 class PodLogArgsSchema(StrictSchema):
