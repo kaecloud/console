@@ -1592,7 +1592,7 @@ def deploy_app_canary(args, appname):
         return DEFAULT_RETURN_VALUE
 
 
-@bp.route('/<appname>/canary', methods=['DELETE'])
+@bp.route('/<appname>/canary/undeploy', methods=['DELETE'])
 @use_args(ClusterArgSchema())
 @user_require(False)
 def undeploy_app_canary(args, appname):
