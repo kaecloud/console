@@ -12,7 +12,7 @@ from urllib3.exceptions import ProtocolError
 import redis_lock
 
 from console.libs.utils import (
-    logger, make_app_watcher_channel_name, make_errmsg, send_email, bearychat_sendmsg,
+    logger, make_app_watcher_channel_name, make_msg, make_errmsg, send_email, bearychat_sendmsg,
     build_image_helper, BuildError
 )
 from console.libs.jsonutils import VersatileEncoder
@@ -282,6 +282,10 @@ def build_app(socket, appname):
     release = app.get_release_by_tag(tag)
     if not release:
         socket.send(make_errmsg('release {} not found.'.format(tag), jsonize=True))
+        return
+
+    if release.build_status:
+        socket.send(make_msg("Finished", msg="already built", jsonize=True))
         return
 
     def heartbeat_sender():
