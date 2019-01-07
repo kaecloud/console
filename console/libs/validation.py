@@ -2,24 +2,15 @@
 import re
 import numbers
 from humanfriendly import parse_size, InvalidSize
-from marshmallow import Schema, validates_schema, ValidationError, fields
+from marshmallow import validates_schema, ValidationError, fields
 from numbers import Number
 
 from console.libs.k8s import KubeApi
 
-
-class StrictSchema(Schema):
-    @validates_schema(pass_original=True)
-    def check_unknown_fields(self, data, original_data):
-        if original_data is None:
-            raise ValidationError("the data passed the schema is null")
-        unknown = set(original_data) - set(self.fields) - set(field.load_from for field in self.fields.values())
-        if unknown:
-            raise ValidationError('Unknown fields: {}, please check the docs'.format(unknown))
-
-    class Meta:
-        strict = True
-        ordered = True
+from kaelib.spec import (
+    StrictSchema, validate_cpu, validate_memory, validate_appname, validate_jobname,
+    validate_app_type, validate_tag,
+)
 
 
 def validate_positive_integer(i):
@@ -32,33 +23,10 @@ def validate_weight(i):
         raise ValidationError("invalid percent value")
 
 
-def validate_appname(name):
-    regex = re.compile(r'[a-zA-Z_][\w-]*$')
-    if regex.match(name) is None:
-        raise ValidationError("appname is invalid")
-
-
-def validate_tag(tag):
-    regex = re.compile(r'[\w][\w.-]{0,127}$')
-    if regex.match(tag) is None:
-        raise ValidationError("tag is invalid")
-
-
 def validate_git(git_url):
     regex = re.compile(r'((git|ssh|http(s)?)|(git@[\w.]+))(:(//)?)([\w.@:/\-~]+)(\.git)(/)?$')
     if regex.match(git_url) is None:
         raise ValidationError("git url is invalid")
-
-
-def validate_app_type(ss):
-    if ss not in ("web", "worker"):
-        raise ValidationError("app type should be `web`, `worker`")
-
-
-def validate_jobname(name):
-    regex = re.compile(r'[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
-    if regex.match(name) is None:
-        raise ValidationError("jobname is invalid")
 
 
 def validate_username(n):
@@ -164,30 +132,6 @@ def validate_abtesting_rules(dd):
         if ty not in validator_map:
             raise ValidationError("invalid rule type")
         validator_map[ty](op, op_args, get_args)
-
-
-def validate_cpu(d):
-    for k, v in d.items():
-        if k not in ('request', "limit"):
-            raise ValidationError("cpu dict's key should be request or limit")
-        try:
-            if v[-1] == 'm':
-                v = v[:-1]
-            if float(v) < 0:
-                raise ValidationError('CPU must >=0')
-        except:
-            raise ValidationError("invalid cpu value format")
-
-
-def validate_memory(d):
-    for k, v in d.items():
-        if k not in ('request', "limit"):
-            raise ValidationError("memory dict's key should be request or limit")
-        try:
-            if parse_size(v) <= 0:
-                raise ValidationError("memory should bigger than zero")
-        except InvalidSize:
-            raise ValidationError("invalid memory value format")
 
 
 def validate_memory_dict(dd):

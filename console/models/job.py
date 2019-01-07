@@ -9,7 +9,7 @@ from werkzeug.utils import cached_property
 
 from console.ext import db
 from console.models.base import BaseModelMixin
-from console.libs.specs import load_job_specs
+from kaelib.spec import load_job_specs
 from console.libs.utils import logger
 
 

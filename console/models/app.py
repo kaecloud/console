@@ -11,7 +11,7 @@ from werkzeug.utils import cached_property
 from console.ext import db
 from console.libs.utils import logger
 from console.models.base import BaseModelMixin
-from console.libs.specs import app_specs_schema
+from kaelib.spec import app_specs_schema
 
 
 app_user_association = db.Table('app_user_association',

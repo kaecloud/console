@@ -5,7 +5,7 @@ import random
 import string
 import yaml
 
-from console.libs.specs import app_specs_schema
+from kaelib.spec import app_specs_schema
 
 
 default_appname = "test-app"

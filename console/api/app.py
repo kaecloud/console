@@ -10,6 +10,8 @@ from marshmallow import ValidationError
 from sqlalchemy.exc import IntegrityError
 from webargs.flaskparser import use_args
 
+from kaelib.spec import app_specs_schema
+
 from console.libs.validation import (
     RegisterSchema, CreateAppArgsSchema, UserSchema, RollbackSchema, SecretArgsSchema, ConfigMapArgsSchema,
     ScaleSchema, DeploySchema, ClusterArgSchema, OptionalClusterArgSchema, ABTestingSchema,
@@ -19,13 +21,47 @@ from console.libs.validation import (
 from console.libs.utils import logger, make_canary_appname, bearychat_sendmsg
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
 from console.models import App, Release, SpecVersion, User, OPLog, OPType, AppYaml
-from console.libs.specs import fix_app_spec, app_specs_schema
 from console.libs.k8s import KubeApi, KubeError
 from console.libs.k8s import ApiException
 from console.config import DEFAULT_REGISTRY, DEFAULT_APP_NS, BEARYCHAT_CHANNEL
 from console.ext import rds
 
 bp = create_api_blueprint('app', __name__, 'app')
+
+
+def fix_app_spec(spec, appname, tag):
+    """
+    override some fields of the spec
+    - appname
+    - set build tag if necessary
+    - set image for container if necessary
+    :param spec:
+    :param appname:
+    :param git:
+    :param tag:
+    :return:
+    """
+    spec['appname'] = appname
+    svc = spec["service"]
+
+    registry = svc.get('registry', None)
+    if registry is None:
+        registry = DEFAULT_REGISTRY
+
+    default_release_image = None
+    for build in spec["builds"]:
+        name = build.get("name", None)
+        if name == appname:
+            # overwrite the build tag to release tag
+            build['tag'] = tag
+            default_release_image = "{}/{}:{}".format(registry.rstrip('/'), appname, tag)
+
+    containers = spec["service"]["containers"]
+    for container in containers:
+        if "image" not in container:
+            if not default_release_image:
+                raise ValidationError("you must set image for container")
+            container["image"] = default_release_image
 
 
 @contextlib.contextmanager
