@@ -23,7 +23,6 @@ app_user_association = db.Table('app_user_association',
 class App(BaseModelMixin):
     __tablename__ = "app"
     name = db.Column(db.CHAR(64), nullable=False, unique=True)
-    # 形如 git@gitlab.ricebook.net:platform/apollo.git
     git = db.Column(db.String(255), nullable=False)
     type = db.Column(db.CHAR(64), nullable=False)
     users = db.relationship('User', secondary=app_user_association,

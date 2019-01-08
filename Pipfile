@@ -1,5 +1,5 @@
 [[source]]
-url = "https://mirrors.aliyun.com/pypi/simple/"
+url = "https://pypi.org/simple"
 verify_ssl = true
 name = "pypi"
 
@@ -47,7 +47,7 @@ kubernetes = "*"
 celery = "*"
 marshmallow = "*"
 flasgger = "*"
-kaelib = {editable = true, git = "https://github.com/kaecloud/kaelib.git", ref = "0.0.2"}
+kaelib = "*"
 
 [requires]
 python_version = "3.6"

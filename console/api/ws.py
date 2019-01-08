@@ -322,8 +322,6 @@ def build_app(socket, appname):
                     if client_closed is False:
                         socket.send(m)
                 except WebSocketError as e:
-                    # when client is disconnected, we shutdown the build task
-                    # TODO: maybe need to wait task to exit.
                     client_closed = True
                     logger.warn("Can't send build msg to client: {}".format(str(e)))
         except Exception as e:

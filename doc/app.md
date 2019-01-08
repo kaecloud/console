@@ -13,6 +13,16 @@ builds:                             # spec for building image
   args:                             # optional
     buildno: 1
 
+test:
+  builds:                           # if not specfied, then the top level builds are used
+    name: {NAME}
+  entrypoints:                      # specify how to run test containers, every entrypoing is a container
+  - image: xxxx
+    volumes:
+      - hostPath:containerPath
+    script:
+      - command1
+      - command2
 service:
   user: root                # default: root
   registry: xxxx            # specify different registry name
@@ -53,18 +63,18 @@ service:
       - ENVA=a
       - ENVB=b
     tty: false               # whether allocate tty
-    workingDir: xxx          
+    workingDir: xxx
     gpu: 1                   # optional, only integer is allowed
     cpu:                     # cpu resource, example value: 1, 0.1, 100m
                              # if cpu isn't specified, then request is 100m
                              # and limit is 200m
-      request: xxx           
-      limit: xxx            
+      request: xxx
+      limit: xxx
     memory:                  # memory resource, example value: 1, 1G, 1M, 1K, 1Gi, 1Mi, 1Ki
                              # if memory isn't specified, then request is 64Mi
                              # and limit is 128Mi
       request: xxx
-      limit: xxx             
+      limit: xxx
 
     ports:
       - containerPort: 9506
