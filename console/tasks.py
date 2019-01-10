@@ -107,5 +107,6 @@ def celery_task_stream_response(celery_task_ids, timeout=0, exit_when_timeout=Tr
             else:
                 yield content
     finally:
+        logger.debug("celery stream response exit ************")
         pubsub.unsubscribe()
         pubsub.close()

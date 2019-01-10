@@ -48,6 +48,14 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "2"
+        livenessProbe:
+          exec:
+            command:
+              - "/bin/sh"
+              - "-c"
+              - "celery -A console.app:celery inspect ping -d celery@$HOSTNAME"
+          initialDelaySeconds: 30
+          periodSeconds: 10
       volumes:
       - name: docker-sock-volume
         hostPath:

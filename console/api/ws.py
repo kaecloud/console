@@ -26,7 +26,7 @@ from console.tasks import celery_task_stream_response, build_image
 from console.ext import rds, db
 from console.config import (
     DEFAULT_APP_NS, DEFAULT_JOB_NS, WS_HEARTBEAT_TIMEOUT, FAKE_USER,
-    BEARYCHAT_CHANNEL,
+    BEARYCHAT_CHANNEL, APP_BUILD_TIMEOUT,
 )
 
 ws = create_api_blueprint('ws', __name__, url_prefix='ws', jsonize=False, handle_http_error=False)
@@ -308,45 +308,53 @@ def build_app(socket, appname):
     lock_name = "__app_lock_{}_build_aaa".format(appname)
     lck = redis_lock.Lock(rds, lock_name, expire=30, auto_renewal=True)
     if lck.acquire(blocking=block):
-        try:
+        with gevent.Timeout(APP_BUILD_TIMEOUT, False):
             async_result = build_image.delay(appname, tag)
-            for m in celery_task_stream_response(async_result.task_id, 900):
-                # after 10 minutes, we still can't get output message, so we exit the build task
-                try:
-                    if m is None:
-                        async_result.revoke(terminate=True)
-                        socket.send(make_errmsg("doesn't receive any messages in last 15 minutes, build task for app {} seems to be stuck".format(appname), jsonize=True))
-                        break
-                    if handle_msg(m) is False:
-                        break
-                    if client_closed is False:
-                        socket.send(m)
-                except WebSocketError as e:
-                    client_closed = True
-                    logger.warn("Can't send build msg to client: {}".format(str(e)))
-        except Exception as e:
-            socket.send(make_errmsg("error when build app {}: {}".format(appname, str(e)), jsonize=True))
-        finally:
-            lck.release()
-            # if client websocket is closed, we send an email to the user
-            if phase.lower() != "finished":
-                subject = "KAE: Failed to build {}:{}".format(appname, tag)
-                text_title = '<h2 style="color: #ff6161;"> Build Failed </h2>'
-                build_result_text = '<strong style="color:#ff6161;"> build terminates prematurely.</strong>'
-            else:
-                subject = 'KAE: build {}:{} successfully'.format(appname, tag)
-                text_title = '<h2 style="color: #00d600;"> Build Success </h2>'
-                build_result_text = '<strong style="color:#00d600; font-weight: 600">Build %s %s done.</strong>' % (appname, tag)
-            email_text_tpl = '''<div>
+            try:
+                for m in celery_task_stream_response(async_result.task_id, 900):
+                    # after 10 minutes, we still can't get output message, so we exit the build task
+                    try:
+                        if m is None:
+                            async_result.revoke(terminate=True)
+                            socket.send(make_errmsg("doesn't receive any messages in last 15 minutes, build task for app {} seems to be stuck".format(appname), jsonize=True))
+                            break
+                        if handle_msg(m) is False:
+                            break
+                        if client_closed is False:
+                            socket.send(m)
+                    except WebSocketError as e:
+                        client_closed = True
+                        logger.warn("Can't send build msg to client: {}".format(str(e)))
+            except gevent.Timeout:
+                logger.debug("********* build gevent timeout")
+                socket.send(make_errmsg("timeout when build app {}".format(appname), jsonize=True))
+            except Exception as e:
+                socket.send(make_errmsg("error when build app {}: {}".format(appname, str(e)), jsonize=True))
+            finally:
+                lck.release()
+                logger.debug("************ terminate task")
+                async_result.revoke(terminate=True)
+                # if client websocket is closed, we send an email to the user
+                if phase.lower() != "finished":
+                    subject = "KAE: Failed to build {}:{}".format(appname, tag)
+                    bearychat_msg = "KAE: Failed to build **{}:{}**".format(appname, tag)
+                    text_title = '<h2 style="color: #ff6161;"> Build Failed </h2>'
+                    build_result_text = '<strong style="color:#ff6161;"> build terminates prematurely.</strong>'
+                else:
+                    subject = 'KAE: build {}:{} successfully'.format(appname, tag)
+                    bearychat_msg = 'KAE: build **{}:{}** successfully'.format(appname, tag)
+                    text_title = '<h2 style="color: #00d600;"> Build Success </h2>'
+                    build_result_text = '<strong style="color:#00d600; font-weight: 600">Build %s %s done.</strong>' % (appname, tag)
+                email_text_tpl = '''<div>
   <div>{}</div>
   <div style="background:#000; padding: 15px; color: #c4c4c4;">
     <pre>{}</pre>
   </div>
 </div>'''
-            email_text = email_text_tpl.format(text_title, html.escape("\n".join(total_msg)) + '\n' + build_result_text)
-            email_list = [u.email for u in app.users]
-            send_email(email_list, subject, email_text)
-            bearychat_sendmsg(BEARYCHAT_CHANNEL, subject)
+                email_text = email_text_tpl.format(text_title, html.escape("\n".join(total_msg)) + '\n' + build_result_text)
+                email_list = [u.email for u in app.users]
+                send_email(email_list, subject, email_text)
+                bearychat_sendmsg(BEARYCHAT_CHANNEL, bearychat_msg)
     else:
         socket.send(make_errmsg("there seems exist another build task and you set block to {}".format(block), jsonize=True))
 
