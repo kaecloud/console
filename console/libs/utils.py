@@ -351,6 +351,5 @@ def build_image_helper(appname, release):
         except docker.errors.APIError as e:
             raise BuildError(make_msg("Pushing", success=False, error="pushing error: {}".format(str(e))))
         logger.debug("=========", full_image_name)
-    release.update_build_status(True)
     yield make_msg("Finished", msg="build app {}'s release {} successfully".format(appname, git_tag))
 

@@ -3,7 +3,7 @@ import json
 import html
 from functools import wraps
 import contextlib
-from flask import session, g, current_app, request, url_for
+from flask import g, current_app, request, url_for
 from json.decoder import JSONDecodeError
 from marshmallow import ValidationError
 import gevent
@@ -13,14 +13,13 @@ import redis_lock
 
 from console.libs.utils import (
     logger, make_app_watcher_channel_name, make_msg, make_errmsg, send_email, bearychat_sendmsg,
-    build_image_helper, BuildError
 )
 from console.libs.jsonutils import VersatileEncoder
 from console.libs.k8s import KubeApi, ApiException
 from console.libs.validation import (
-    build_args_schema, cluster_args_schema, cluster_canary_schema, pod_entry_schema
+    build_args_schema, cluster_canary_schema, pod_entry_schema
 )
-from console.libs.view import create_api_blueprint, user_require
+from console.libs.view import create_api_blueprint
 from console.models import App, Job, User, get_current_user
 from console.tasks import celery_task_stream_response, build_image
 from console.ext import rds, db
@@ -326,21 +325,23 @@ def build_app(socket, appname):
                         client_closed = True
                         logger.warn("Can't send build msg to client: {}".format(str(e)))
             except gevent.Timeout:
+                async_result.revoke(terminate=True)
                 logger.debug("********* build gevent timeout")
                 socket.send(make_errmsg("timeout when build app {}".format(appname), jsonize=True))
             except Exception as e:
+                async_result.revoke(terminate=True)
                 socket.send(make_errmsg("error when build app {}: {}".format(appname, str(e)), jsonize=True))
             finally:
                 lck.release()
                 logger.debug("************ terminate task")
-                async_result.revoke(terminate=True)
-                # if client websocket is closed, we send an email to the user
+                # after build exit, we send an email to the user
                 if phase.lower() != "finished":
                     subject = "KAE: Failed to build {}:{}".format(appname, tag)
                     bearychat_msg = "KAE: Failed to build **{}:{}**".format(appname, tag)
                     text_title = '<h2 style="color: #ff6161;"> Build Failed </h2>'
                     build_result_text = '<strong style="color:#ff6161;"> build terminates prematurely.</strong>'
                 else:
+                    release.update_build_status(True)
                     subject = 'KAE: build {}:{} successfully'.format(appname, tag)
                     bearychat_msg = 'KAE: build **{}:{}** successfully'.format(appname, tag)
                     text_title = '<h2 style="color: #00d600;"> Build Success </h2>'
