@@ -308,10 +308,10 @@ def build_app(socket, appname):
     # don't allow multiple build tasks for single app
     lock_name = "__app_lock_{}_build_aaa".format(appname)
     lck = redis_lock.Lock(rds, lock_name, expire=30, auto_renewal=True)
-    if lck.acquire(blocking=block):
-        with gevent.Timeout(APP_BUILD_TIMEOUT, False):
+    with gevent.Timeout(APP_BUILD_TIMEOUT, False):
+        if lck.acquire(blocking=block):
             async_result = build_image.delay(appname, tag)
-            rds.hset(app_redis_key, "build-task", async_result)
+            rds.hset(app_redis_key, "build-task-id", async_result.task_id)
             try:
                 for m in celery_task_stream_response(async_result.task_id, 900):
                     # after 10 minutes, we still can't get output message, so we exit the build task
@@ -336,7 +336,7 @@ def build_app(socket, appname):
                 socket.send(make_errmsg("error when build app {}: {}".format(appname, str(e)), jsonize=True))
             finally:
                 lck.release()
-                rds.hdel(app_redis_key, "build-task")
+                rds.hdel(app_redis_key, "build-task-id")
                 logger.debug("************ terminate task")
                 # after build exit, we send an email to the user
                 if phase.lower() != "finished":
@@ -360,8 +360,24 @@ def build_app(socket, appname):
                 email_list = [u.email for u in app.users]
                 send_email(email_list, subject, email_text)
                 bearychat_sendmsg(BEARYCHAT_CHANNEL, bearychat_msg)
-    else:
-        socket.send(make_errmsg("there seems exist another build task and you set block to {}".format(block), jsonize=True))
+        else:
+            socket.send(make_msg("Unknown", msg="there seems exist another build task, try to fetch output", jsonize=True))
+            build_task_id = rds.hget(app_redis_key, "build-task-id")
+            if isinstance(build_task_id, bytes):
+                build_task_id = build_task_id.decode('utf8')
+            for m in celery_task_stream_response(build_task_id, 900):
+                # after 10 minutes, we still can't get output message, so we exit the build task
+                try:
+                    if m is None:
+                        socket.send(make_errmsg("doesn't receive any messages in last 15 minutes, build task for app {} seems to be stuck".format(appname), jsonize=True))
+                        break
+                    if handle_msg(m) is False:
+                        break
+                    if client_closed is False:
+                        socket.send(m)
+                except WebSocketError as e:
+                    client_closed = True
+                    break
 
 
 @ws.route('/job/<jobname>/log/events')

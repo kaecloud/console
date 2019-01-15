@@ -1917,8 +1917,11 @@ def kill_build_task(appname):
 
     app_redis_key = make_app_redis_key(appname)
     try:
-        async_result = rds.hget(app_redis_key, "build-task")
-        async_result.revoke(terminate=True)
+        build_task_id = rds.hget(app_redis_key, "build-task-id")
+        if isinstance(build_task_id, bytes):
+            build_task_id = build_task_id.decode('utf8')
+        from console.app import celery
+        celery.control.revoke(build_task_id, terminate=True)
     finally:
-        rds.hdel(app_redis_key, "build-task")
+        rds.hdel(app_redis_key, "build-task-id")
     return DEFAULT_RETURN_VALUE
