@@ -312,21 +312,24 @@ def build_app(socket, appname):
         if lck.acquire(blocking=block):
             async_result = build_image.delay(appname, tag)
             rds.hset(app_redis_key, "build-task-id", async_result.task_id)
+
+            db.session.remove()
             try:
                 for m in celery_task_stream_response(async_result.task_id, 900):
                     # after 10 minutes, we still can't get output message, so we exit the build task
+                    if m is None:
+                        async_result.revoke(terminate=True)
+                        socket.send(make_errmsg("doesn't receive any messages in last 15 minutes, build task for app {} seems to be stuck".format(appname), jsonize=True))
+                        break
                     try:
-                        if m is None:
-                            async_result.revoke(terminate=True)
-                            socket.send(make_errmsg("doesn't receive any messages in last 15 minutes, build task for app {} seems to be stuck".format(appname), jsonize=True))
-                            break
-                        if handle_msg(m) is False:
-                            break
                         if client_closed is False:
                             socket.send(m)
                     except WebSocketError as e:
                         client_closed = True
                         logger.warn("Can't send build msg to client: {}".format(str(e)))
+
+                    if handle_msg(m) is False:
+                        break
             except gevent.Timeout:
                 async_result.revoke(terminate=True)
                 logger.debug("********* build gevent timeout")
@@ -363,6 +366,9 @@ def build_app(socket, appname):
         else:
             socket.send(make_msg("Unknown", msg="there seems exist another build task, try to fetch output", jsonize=True))
             build_task_id = rds.hget(app_redis_key, "build-task-id")
+            if not build_task_id:
+                socket.send(make_errmsg("can't get build task id", jsonize=True))
+                return
             if isinstance(build_task_id, bytes):
                 build_task_id = build_task_id.decode('utf8')
             for m in celery_task_stream_response(build_task_id, 900):

@@ -18,12 +18,19 @@ from console.libs.validation import (
     ClusterCanarySchema, SpecsArgsSchema, AppYamlArgsSchema, PaginationSchema, PodLogArgsSchema,
     PodEntryArgsSchema, AppCanaryWeightArgSchema,
 )
-from console.libs.utils import logger, make_canary_appname, bearychat_sendmsg, make_app_redis_key
+
+from console.libs.utils import (
+    logger, make_canary_appname, bearychat_sendmsg, make_app_redis_key,
+    make_errmsg,
+)
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
 from console.models import App, Release, SpecVersion, User, OPLog, OPType, AppYaml
 from console.libs.k8s import KubeApi, KubeError
 from console.libs.k8s import ApiException
-from console.config import DEFAULT_REGISTRY, DEFAULT_APP_NS, BEARYCHAT_CHANNEL
+from console.config import (
+    DEFAULT_REGISTRY, DEFAULT_APP_NS, BEARYCHAT_CHANNEL,
+    TASK_PUBSUB_CHANNEL, TASK_PUBSUB_EOF,
+)
 from console.ext import rds
 
 bp = create_api_blueprint('app', __name__, 'app')
@@ -1918,10 +1925,19 @@ def kill_build_task(appname):
     app_redis_key = make_app_redis_key(appname)
     try:
         build_task_id = rds.hget(app_redis_key, "build-task-id")
+        if not build_task_id:
+            abort(404, "build task is not running")
         if isinstance(build_task_id, bytes):
             build_task_id = build_task_id.decode('utf8')
         from console.app import celery
+        # logger.debug("++++++++", build_task_id, celery.control)
         celery.control.revoke(build_task_id, terminate=True)
+
+        # notify build greenlet to exit
+        channel_name = TASK_PUBSUB_CHANNEL.format(task_id=build_task_id)
+        failure_msg = make_errmsg('terminate by user', jsonize=True)
+        rds.publish(channel_name, failure_msg)
+        rds.publish(channel_name, TASK_PUBSUB_EOF.format(task_id=build_task_id))
     finally:
         rds.hdel(app_redis_key, "build-task-id")
     return DEFAULT_RETURN_VALUE
