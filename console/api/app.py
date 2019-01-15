@@ -18,7 +18,7 @@ from console.libs.validation import (
     ClusterCanarySchema, SpecsArgsSchema, AppYamlArgsSchema, PaginationSchema, PodLogArgsSchema,
     PodEntryArgsSchema, AppCanaryWeightArgSchema,
 )
-from console.libs.utils import logger, make_canary_appname, bearychat_sendmsg
+from console.libs.utils import logger, make_canary_appname, bearychat_sendmsg, make_app_redis_key
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
 from console.models import App, Release, SpecVersion, User, OPLog, OPType, AppYaml
 from console.libs.k8s import KubeApi, KubeError
@@ -1899,4 +1899,26 @@ def stop_container(args, appname):
     with handle_k8s_error("Error when stop container"):
         rules = KubeApi.instance().stop_container(podname, cluster_name=cluster, namespace=namespace, container=container)
 
+    return DEFAULT_RETURN_VALUE
+
+
+@bp.route('/<appname>/build/kill', methods=['DELETE'])
+@user_require(False)
+def kill_build_task(appname):
+    """
+    kill build task
+    """
+    app = App.get_by_name(appname)
+    if not app:
+        abort(404, 'app {} not found'.format(appname))
+
+    if not g.user.granted_to_app(app):
+        abort(403, 'You\'re not granted to this app, ask administrators for permission')
+
+    app_redis_key = make_app_redis_key(appname)
+    try:
+        async_result = rds.hget(app_redis_key, "build-task")
+        async_result.revoke(terminate=True)
+    finally:
+        rds.hdel(app_redis_key, "build-task")
     return DEFAULT_RETURN_VALUE

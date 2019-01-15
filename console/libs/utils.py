@@ -213,6 +213,10 @@ def make_canary_appname(appname):
     return "{}-canary".format(appname)
 
 
+def make_app_redis_key(appname):
+    return "app-{}-data".format(appname)
+
+
 def search_tls_secret(cluster, hostname):
     cluster_secret_map = TLS_SECRET_MAP.get(cluster, None)
     if cluster_secret_map is None:

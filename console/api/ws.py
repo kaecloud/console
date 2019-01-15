@@ -13,6 +13,7 @@ import redis_lock
 
 from console.libs.utils import (
     logger, make_app_watcher_channel_name, make_msg, make_errmsg, send_email, bearychat_sendmsg,
+    make_app_redis_key,
 )
 from console.libs.jsonutils import VersatileEncoder
 from console.libs.k8s import KubeApi, ApiException
@@ -303,12 +304,14 @@ def build_app(socket, appname):
 
     gevent.spawn(heartbeat_sender)
 
+    app_redis_key = make_app_redis_key(appname)
     # don't allow multiple build tasks for single app
     lock_name = "__app_lock_{}_build_aaa".format(appname)
     lck = redis_lock.Lock(rds, lock_name, expire=30, auto_renewal=True)
     if lck.acquire(blocking=block):
         with gevent.Timeout(APP_BUILD_TIMEOUT, False):
             async_result = build_image.delay(appname, tag)
+            rds.hset(app_redis_key, "build-task", async_result)
             try:
                 for m in celery_task_stream_response(async_result.task_id, 900):
                     # after 10 minutes, we still can't get output message, so we exit the build task
@@ -333,6 +336,7 @@ def build_app(socket, appname):
                 socket.send(make_errmsg("error when build app {}: {}".format(appname, str(e)), jsonize=True))
             finally:
                 lck.release()
+                rds.hdel(app_redis_key, "build-task")
                 logger.debug("************ terminate task")
                 # after build exit, we send an email to the user
                 if phase.lower() != "finished":
