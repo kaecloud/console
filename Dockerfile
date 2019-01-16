@@ -9,7 +9,7 @@ RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositorie
     apk update && \
     apk add --no-cache git openssh libffi-dev openssl-dev alpine-sdk && \
     pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ pipenv && \
-    pipenv install --system --deploy && \
+    pipenv install --pypi-mirror https://pypi.tuna.tsinghua.edu.cn/simple --system --deploy && \
     apk del alpine-sdk
 
 EXPOSE 5000
