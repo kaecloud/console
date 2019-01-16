@@ -23,7 +23,7 @@ jobs:
     script:
       - echo $TRAVIS_TAG
       - echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-      - docker build -t kaecloud/console:latest .
+      - docker build -f .travis/Dockerfile -t kaecloud/console:latest .
       - docker tag kaecloud/console:latest kaecloud/console:$TRAVIS_TAG
       - docker images
       - docker push kaecloud/console:$TRAVIS_TAG
