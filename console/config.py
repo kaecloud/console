@@ -81,6 +81,7 @@ TLS_SECRET_MAP = {
     # }
 }
 
+# cluster's dfs root directory
 DFS_HOST_DIR_MAP = {
     # "cluster1": "/dfs"
 }
