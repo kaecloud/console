@@ -341,7 +341,17 @@ def build_image_helper(appname, release):
 
         # use docker to build image
         try:
-            for line in client.build(path=repo_dir, dockerfile=dockerfile, tag=full_image_name):
+            build_args_dict = {
+                "path": repo_dir,
+                "dockerfile": dockerfile,
+                "tag": full_image_name,
+            }
+            if build.target:
+                build_args_dict['target'] = build.target
+            if build.args:
+                build_args_dict['buildargs'] = build.args
+
+            for line in client.build(**build_args_dict):
                 output_dict = json.loads(line.decode('utf8'))
                 if 'stream' in output_dict:
                     yield make_msg("Building", raw_data=output_dict, msg=output_dict['stream'].rstrip("\n"))
