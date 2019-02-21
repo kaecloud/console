@@ -17,7 +17,8 @@ test:
   builds:                           # if not specfied, then the top level builds are used
     name: {NAME}
   entrypoints:                      # specify how to run test containers, every entrypoing is a container
-  - image: xxxx
+  - image: xxxx      # if not specified, then the default image(<registry>/appname:tag>) for current release is used,
+                     # Note: `${TAG}` in image string will be replaced with current release tag
     volumes:
       - hostPath:containerPath
     script:
@@ -91,7 +92,7 @@ service:
     - dir: xxxx            # required, the config map's mount path in container
       key: xxxx            # required, the key in configmap
       filename: xxx        # optional, default is the value of `key`
-    useDFS: false          # optional, if set to true, then KAE will create a directory (<dfs_root>/kae/apps/<appname>) in distribute filesystem 
+    useDFS: false          # optional, if set to true, then KAE will create a directory (<dfs_root>/kae/apps/<appname>) in distribute filesystem
                            #           and mount this dir to /kae/dfs
                            # administrator must set dfs_root for correspond cluster(please use `DFS_HOST_DIR_MAP` in config.py)
 ```

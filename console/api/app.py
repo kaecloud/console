@@ -69,6 +69,7 @@ def fix_app_spec(spec, appname, tag):
             if not default_release_image:
                 raise ValidationError("you must set image for container")
             container["image"] = default_release_image
+        container['image'] = container['image'].replace('${TAG}', tag)
 
 
 @contextlib.contextmanager
