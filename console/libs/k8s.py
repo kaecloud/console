@@ -537,7 +537,7 @@ class ClientApiBundle(object):
                 raise e
 
     def _construct_pod_spec(self, name, volumes_root, container_spec_list,
-                            restartPolicy='Always', initial_env=None,
+                            restartPolicy='Always', initial_env=None, hostAliases=None,
                             initial_vol_mounts=None, default_work_dir=None, secret_name=None):
         use_dfs = False
         cluster_dfs_exists = (get_dfs_host_dir(self.cluster) is not None)
@@ -552,6 +552,10 @@ class ClientApiBundle(object):
             'name', 'image', 'imagePullPolicy', 'args', 'command', 'tty',
             'workingDir', 'livenessProbe', 'readinessProbe', 'ports',
         ]
+
+        if hostAliases:
+            pod_spec.hostAliases = hostAliases
+
         containers = []
         images = []
         for container_spec in container_spec_list:
@@ -732,11 +736,16 @@ class ClientApiBundle(object):
                 k, v = line.split('=')
                 obj.metadata.labels[k] = v
 
+        if 'hostAliases' in svc:
+            hostAliases = svc.hostAliases
+        else:
+            hostAliases = None
+
         log_mount = {
             "name": "kae-log-volumes",
             "mountPath": POD_LOG_DIR,
         }
-        pod_spec = self._construct_pod_spec(appname, app_dir, svc.containers, initial_vol_mounts=[log_mount], secret_name=secret_name)
+        pod_spec = self._construct_pod_spec(appname, app_dir, svc.containers, hostAliases=hostAliases, initial_vol_mounts=[log_mount], secret_name=secret_name)
         pod_spec.volumes.append(
             {
                 "name": "kae-log-volumes",

@@ -53,6 +53,16 @@ service:
       maxUnavailable: 25%
   volumes: []               # a list of k8s's volume object, see https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.10/#volume-v1-core
 
+  hostAliases:              # add custom entries to a Pod's /etc/hosts
+  - ip: "127.0.0.1"
+    hostnames:
+    - "foo.local"
+    - "bar.local"
+  - ip: "10.1.2.3"
+    hostnames:
+    - "foo.remote"
+    - "bar.remote"
+
   containers:
   - name: "xxx"
     image: {IMAGE}           # image of the container
