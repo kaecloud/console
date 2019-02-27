@@ -14,11 +14,11 @@ unittest:
   stage: unittest
   image: python:3.6.6-alpine
   before_script:
-    - sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories
+    - sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
     - apk update
     - apk add --no-cache git openssh libffi-dev openssl-dev alpine-sdk
-    - pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple pipenv
-    - pipenv install --pypi-mirror https://pypi.tuna.tsinghua.edu.cn/simple --system --dev
+    - pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ pipenv
+    - pipenv install --pypi-mirror https://mirrors.aliyun.com/pypi/simple/ --system --dev
   script:
     - PYTEST=1 pytest
 

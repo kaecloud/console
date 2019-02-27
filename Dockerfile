@@ -5,11 +5,11 @@ RUN mkdir -p /kae/app
 ADD . /kae/app
 
 WORKDIR /kae/app
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories && \
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
     apk update && \
     apk add --no-cache git openssh libffi-dev openssl-dev alpine-sdk && \
     pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ pipenv && \
-    pipenv install --pypi-mirror https://pypi.tuna.tsinghua.edu.cn/simple --system --deploy && \
+    pipenv install --pypi-mirror https://mirrors.aliyun.com/pypi/simple/ --system --deploy && \
     apk del alpine-sdk
 
 EXPOSE 5000
