@@ -27,6 +27,7 @@ class App(BaseModelMixin):
     type = db.Column(db.CHAR(64), nullable=False)
     users = db.relationship('User', secondary=app_user_association,
                             backref=db.backref('apps', lazy='dynamic'), lazy='dynamic')
+    rank = db.Column(db.Integer, default=0)
 
     def __str__(self):
         return self.name
