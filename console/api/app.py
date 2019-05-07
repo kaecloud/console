@@ -29,7 +29,7 @@ from console.libs.k8s import KubeApi, KubeError
 from console.libs.k8s import ApiException
 from console.config import (
     DEFAULT_REGISTRY, DEFAULT_APP_NS, BEARYCHAT_CHANNEL,
-    TASK_PUBSUB_CHANNEL, TASK_PUBSUB_EOF,
+    TASK_PUBSUB_CHANNEL, TASK_PUBSUB_EOF, PROTECTED_CLUSTER
 )
 from console.ext import rds
 
@@ -1397,6 +1397,9 @@ def deploy_app(args, appname):
     if not g.user.granted_to_app(app):
         abort(403, 'You\'re not granted to this app, ask administrators for permission')
 
+    if cluster in PROTECTED_CLUSTER and app.rank != 1:
+        abort(403, 'This app is not permitted to deploy on this cluster.')
+
     app_yaml = AppYaml.get_by_app_and_name(app, app_yaml_name)
     if not app_yaml:
         abort(404, "AppYaml {} doesn't exist.".format(app_yaml_name))
@@ -1596,6 +1599,9 @@ def deploy_app_canary(args, appname):
 
         if app.type != "web":
             abort(403, "Only web app can deploy canary release")
+
+        if cluster in PROTECTED_CLUSTER and app.rank != 1:
+            abort(403, 'This app is not permitted to deploy on this cluster.')
 
         app_yaml = AppYaml.get_by_app_and_name(app, app_yaml_name)
         if not app_yaml:

@@ -67,6 +67,8 @@ REGISTRY_AUTHS = {
     "registry.cn-hangzhou.aliyuncs.com": "aliyun",
 }
 
+PROTECTED_CLUSTER = ['aliyun']
+
 # Set base domain for cluster, when a cluster has base domain,
 # every app in that cluster will a host name `appname.basedomain`
 # if you use incluster config, then the cluster name should be `incluster`.
