@@ -258,7 +258,7 @@ def create_app():
     init_admin(admin)
 
     from console.libs.view import user_require
-    swagger = Swagger(app, decorators=[user_require(False), ], template=yaml.load(swagger_yaml_template))
+    swagger = Swagger(app, decorators=[user_require(False), ], template=yaml.load(swagger_yaml_template, Loader=yaml.FullLoader))
 
     if not DEBUG:
         sentry = Sentry(dsn=SENTRY_DSN)

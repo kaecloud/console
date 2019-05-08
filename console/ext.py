@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 from loginpass import create_gitlab_backend, register_to
 
 from authlib.flask.client import OAuth, RemoteApp
-from authlib.specs.oidc import UserInfo
+from authlib.oidc.core import UserInfo
 
 from flask import session
 from flask_caching import Cache
