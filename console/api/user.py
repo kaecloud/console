@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from flask import url_for, jsonify, session, request, redirect, abort, g
-from authlib.client.errors import OAuthException
+from authlib.client.errors import OAuthError
 
 from console.config import OAUTH_APP_NAME
 from console.ext import oauth_client, update_token, delete_token
@@ -44,7 +44,7 @@ def list_users():
 def authorized():
     try:
         token = oauth_client.authorize_access_token()
-    except OAuthException as e:
+    except OAuthError as e:
         abort(400, "invalid token, please try again")
     update_token(OAUTH_APP_NAME, token)
     next_url = session.pop('next', None)
