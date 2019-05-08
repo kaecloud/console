@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import json
-from authlib.client.errors import OAuthException
+from authlib.client.errors import OAuthError
 from flask import abort, session, request
 from sqlalchemy.exc import IntegrityError
 
@@ -41,7 +41,7 @@ def get_current_user():
                 return abort(400, "invalid email {}".format(authlib_user.email))
 
             user = User.set_authlib_user(authlib_user)
-        except OAuthException as e:
+        except OAuthError as e:
             return abort(400, 'oauth exception: {}, your session has been reset'.format(e))
         except Exception as e:
             logger.exception('fetch {} profile failed: {}'.format(OAUTH_APP_NAME, e))
