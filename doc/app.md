@@ -87,6 +87,22 @@ service:
       request: xxx
       limit: xxx
 
+      livenessProbe:        #see https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/
+        exec:
+          command:
+          - cat
+          - /tmp/healthy
+        initialDelaySeconds: 5
+        periodSeconds: 5
+
+      readinessProbe:      # see https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/
+        httpGet:
+          path: /healthz
+          port: 5000
+        initialDelaySeconds: 10
+        timeoutSeconds: 10
+
+
     ports:
       - containerPort: 9506
         protocol: TCP
