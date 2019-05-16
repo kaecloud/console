@@ -1,4 +1,4 @@
-FROM python:3.6.6-alpine
+FROM python:3.6.8-alpine
 MAINTAINER yuyang <yyangplus@gmail.com>
 
 RUN mkdir -p /kae/app
