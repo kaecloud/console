@@ -36,7 +36,7 @@ build:
     - docker info
   script:
     - echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin $REGISTRY
-    - docker build -t ${REGISTRY}kaecloud/console:latest .
+    - docker build --network host -t ${REGISTRY}kaecloud/console:latest .
     - docker tag ${REGISTRY}kaecloud/console:latest ${REGISTRY}kaecloud/console:$CI_COMMIT_TAG
     - docker images
     - docker push ${REGISTRY}kaecloud/console:$CI_COMMIT_TAG
