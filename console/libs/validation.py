@@ -53,6 +53,13 @@ def validate_secret_configmap_data(dd):
             raise ValidationError("key of secret or configmap should be string or bytes")
 
 
+def validate_service_match_rules(ss):
+    if (not ss.startswith("header")) and \
+            (not ss.startswith("cookie")) and \
+            (not ss.startswith("query")):
+        raise ValidationError("invalid rules for service-match")
+
+
 def validate_abtesting_rules(dd):
     """
     the format of  dd is:
@@ -265,7 +272,8 @@ class PodLogArgsSchema(StrictSchema):
 
 class ABTestingSchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
-    rules = fields.Dict(required=True, validate=validate_abtesting_rules)
+    # rules = fields.Dict(required=True, validate=validate_abtesting_rules)
+    rules = fields.Str(required=True, validate=validate_service_match_rules)
 
 
 class SecretArgsSchema(StrictSchema):

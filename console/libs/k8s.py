@@ -351,35 +351,44 @@ class ClientApiBundle(object):
 
     def set_abtesting_rules(self, appname, rules, namespace="default"):
         canary_appname = make_canary_appname(appname)
-        annotations_key = "{}/abtesting".format(INGRESS_ANNOTATIONS_PREFIX)
+        annotations_key = "{}/service-match".format(INGRESS_ANNOTATIONS_PREFIX)
         ing = self.extensions_api.read_namespaced_ingress(appname, namespace=namespace)
-        data = {
-            "backend": {
-                "service": canary_appname,
-                # for web app, the service port is 80
-                "port": 80,
-            },
-            "rules": rules,
-        }
+        # data = {
+        #     "backend": {
+        #         "service": canary_appname,
+        #         # for web app, the service port is 80
+        #         "port": 80,
+        #     },
+        #     "rules": rules,
+        # }
+        data = "{}:{}\n".format(canary_appname, rules)
         annotations = ing.metadata.annotations if ing.metadata.annotations else {}
         annotations[annotations_key] = json.dumps(data)
         ing.metadata.annotations = annotations
         self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=namespace)
 
     def get_abtesting_rules(self, appname, namespace="default"):
-        annotations_key = "{}/abtesting".format(INGRESS_ANNOTATIONS_PREFIX)
+        annotations_key = "{}/service-match".format(INGRESS_ANNOTATIONS_PREFIX)
         ing = self.extensions_api.read_namespaced_ingress(appname, namespace=namespace)
         annotations = ing.metadata.annotations if ing.metadata.annotations else {}
         full_rules_str = annotations.get(annotations_key, None)
         if full_rules_str is None:
             return None
-        full_rules = json.loads(full_rules_str)
-        return full_rules.get("rules", None)
+        # full_rules = json.loads(full_rules_str)
+        parts = full_rules_str.split(":", 1)
+        if len(parts) < 2:
+            return None
+        return parts[1]
+        # return full_rules.get("rules", None)
 
     def set_traefik_weight(self, appname, weight, namespace="default"):
         canary_appname = make_canary_appname(appname)
         annotations_key = "traefik.ingress.kubernetes.io/service-weights"
         annotations_val = "{}: {}%\n".format(canary_appname, weight)
+        ngx_annotations_key = "{}/service-weight".format(INGRESS_ANNOTATIONS_PREFIX)
+        # <new-svc-name>:<new-svc-weight>, <old-svc-name>:<old-svc-weight>
+        ngx_annotations_val = "{}:{}, {}:{}\n".format(canary_appname, weight, appname, 100-weight)
+
         ing = self.extensions_api.read_namespaced_ingress(appname, namespace=namespace)
         annotations = ing.metadata.annotations if ing.metadata.annotations else {}
         # if this is the first time to set traffic weight, then we need add backend
@@ -393,13 +402,15 @@ class ClientApiBundle(object):
                 rule.http.paths.extend(extra_paths)
 
         annotations[annotations_key] = annotations_val
+        annotations[ngx_annotations_key] = ngx_annotations_val
         ing.metadata.annotations = annotations
         self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=namespace)
 
     def undeploy_app_canary(self, appname, namespace="default", ignore_404=False):
         canary_appname = make_canary_appname(appname)
         delete_keys = [
-            "{}/abtesting".format(INGRESS_ANNOTATIONS_PREFIX),
+            "{}/service-match".format(INGRESS_ANNOTATIONS_PREFIX),
+            "{}/service-weight".format(INGRESS_ANNOTATIONS_PREFIX),
             "traefik.ingress.kubernetes.io/service-weights",
         ]
         # remove abtesting rules
