@@ -349,6 +349,22 @@ class ClientApiBundle(object):
         self.apply(dp_dict, namespace=namespace)
         self.apply(svc_dict, namespace=namespace)
 
+    def add_canary_backend(self, appname, ing):
+        canary_appname = make_canary_appname(appname)
+        for rule in ing.spec.rules:
+            found = False
+            extra_paths = []
+            for path in rule.http.paths:
+                if path.backend.service_name == canary_appname:
+                    found = True
+                    break
+            if found is False:
+                canary_path = copy.deepcopy(rule.http.paths[0])
+                canary_path.backend.service_name = canary_appname
+                extra_paths.append(canary_path)
+            rule.http.paths.extend(extra_paths)
+        return ing
+
     def set_abtesting_rules(self, appname, rules, namespace="default"):
         weight_keys = [
             "traefik.ingress.kubernetes.io/service-weights",
@@ -373,19 +389,9 @@ class ClientApiBundle(object):
                 annotations.pop(weight_key)
 
         ing.metadata.annotations = annotations
-        # if this is the first time to set traffic weight, then we need add backend
-        for rule in ing.spec.rules:
-            found = False
-            extra_paths = []
-            for path in rule.http.paths:
-                if path.backend.service_name == canary_appname:
-                    found = True
-                    break
-            if found is False:
-                canary_path = copy.deepcopy(rule.http.paths[0])
-                canary_path.backend.service_name = canary_appname
-                extra_paths.append(canary_path)
-            rule.http.paths.extend(extra_paths)
+        # add backend if needed
+        ing = self.add_canary_backend(appname, ing)
+
         self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=namespace)
 
     def get_abtesting_rules(self, appname, namespace="default"):
@@ -407,24 +413,21 @@ class ClientApiBundle(object):
         annotations_key = "traefik.ingress.kubernetes.io/service-weights"
         annotations_val = "{}: {}%\n".format(canary_appname, weight)
         ngx_annotations_key = "{}/service-weight".format(INGRESS_ANNOTATIONS_PREFIX)
+        ngx_match_key = "{}/service-match".format(INGRESS_ANNOTATIONS_PREFIX)
         # <new-svc-name>:<new-svc-weight>, <old-svc-name>:<old-svc-weight>
         ngx_annotations_val = "{}:{}, {}:{}\n".format(canary_appname, weight, appname, 100-weight)
 
         ing = self.extensions_api.read_namespaced_ingress(appname, namespace=namespace)
         annotations = ing.metadata.annotations if ing.metadata.annotations else {}
-        # if this is the first time to set traffic weight, then we need add backend
-        if annotations_key not in annotations:
-            for rule in ing.spec.rules:
-                extra_paths = []
-                for path in rule.http.paths:
-                    canary_path = copy.deepcopy(path)
-                    canary_path.backend.service_name = canary_appname
-                    extra_paths.append(canary_path)
-                rule.http.paths.extend(extra_paths)
-
         annotations[annotations_key] = annotations_val
         annotations[ngx_annotations_key] = ngx_annotations_val
+        if ngx_match_key in annotations:
+            annotations.pop(ngx_match_key)
         ing.metadata.annotations = annotations
+
+        # add canary backend if needed
+        ing = self.add_canary_backend(appname, ing)
+
         self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=namespace)
 
     def undeploy_app_canary(self, appname, namespace="default", ignore_404=False):
