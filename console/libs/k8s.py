@@ -69,13 +69,16 @@ class KubeApi(object):
                     api_client=config.new_client_from_config(context=ctx))
                 batch_api = client.BatchV1Api(
                     api_client=config.new_client_from_config(context=ctx))
-                self.cluster_map[ctx] = ClientApiBundle(ctx, core_v1api, extensions_api, batch_api)
+                scale_api = client.AutoscalingV2beta2Api(
+                    api_client=config.new_client_from_config(context=ctx))
+                self.cluster_map[ctx] = ClientApiBundle(ctx, core_v1api, extensions_api, batch_api, scale_api)
         else:
             config.load_incluster_config()
             core_v1api = client.CoreV1Api()
             extensions_api = client.ExtensionsV1beta1Api()
             batch_api = client.BatchV1Api()
-            self.cluster_map['incluster'] = ClientApiBundle('incluster', core_v1api, extensions_api, batch_api)
+            scale_api = client.AutoscalingV1Api()
+            self.cluster_map['incluster'] = ClientApiBundle('incluster', core_v1api, extensions_api, batch_api, scale_api)
             self.default_cluster_name = "incluster"
 
     def __getattr__(self, item):
@@ -100,12 +103,13 @@ class KubeApi(object):
 
 
 class ClientApiBundle(object):
-    def __init__(self, name, core_v1api, extensions_api, batch_api):
+    def __init__(self, name, core_v1api, extensions_api, batch_api, scale_api):
         self.name = name
         self.cluster = name
         self.core_v1api = core_v1api
         self.extensions_api = extensions_api
         self.batch_api = batch_api
+        self.scale_api = scale_api
 
     def create_job(self, spec, namespace='default'):
         body = self._create_job_dict(spec)
@@ -181,6 +185,29 @@ class ClientApiBundle(object):
             kwargs['container'] = container
         resp = stream(self.core_v1api.connect_get_namespaced_pod_exec, podname, namespace, **kwargs)
         return resp
+
+    def create_hpa(self, appname, ref_kind, hpa_data, namespace="default"):
+        """
+        Create horizontal pod autoscaler
+        see: https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V2beta2HorizontalPodAutoscaler.md
+        """
+        ref = client.V1CrossVersionObjectReference(api_version=None, kind=ref_kind, name=appname)
+
+        hpa = client.V2beta2HorizontalPodAutoscaler()
+        hpa.metadata = client.V1ObjectMeta(name=appname)
+        # TODO
+        metric = client.V2beta2MetricSpec()
+
+        hpa.spec = client.V2beta2HorizontalPodAutoscalerSpec(
+            max_replicas= 1,
+            min_replicas=1,
+            scale_target_ref=ref,
+            metrics=[metric, ],
+        )
+        self.scale_api.create_namespaced_horizontal_pod_autoscaler(name=appname, namespace=namespace, body=hpa)
+
+    def delete_hpa(self, appname, namespace="default"):
+        self.scale_api.delete_namespaced_horizontal_pod_autoscaler(name=appname, namespace=namespace)
 
     def create_or_update_config_map(self, appname, cm_data, replace=True, namespace="default"):
         """
