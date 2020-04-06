@@ -12,6 +12,8 @@ from webargs.flaskparser import use_args
 
 from kaelib.spec import app_specs_schema
 
+from console.app import oidc
+from console.api.util import check_rbac
 from console.libs.validation import (
     RegisterSchema, CreateAppArgsSchema, UserSchema, RollbackSchema, SecretArgsSchema, ConfigMapArgsSchema,
     ScaleSchema, DeploySchema, ClusterArgSchema, OptionalClusterArgSchema, ABTestingSchema,
@@ -131,12 +133,12 @@ def _update_specs(specs, cpus, memories, replicas):
     return Dict(specs)
 
 
-def get_app_raw(appname):
+def get_app_raw(appname, actions=None):
     app = App.get_by_name(appname)
     if not app:
         abort(404, 'App not found: {}'.format(appname))
 
-    if not g.user.granted_to_app(app):
+    if not check_rbac(app, actions):
         abort(403, 'You\'re not granted to this app, ask administrators for permission')
 
     return app
@@ -169,7 +171,7 @@ def _get_canary_info(appname, cluster):
 
 @bp.route('/')
 @use_args(PaginationSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def list_app(args):
     """
     List all the apps associated with the current logged in user, for
@@ -198,7 +200,7 @@ def list_app(args):
 
 @bp.route('/', methods=['POST'])
 @use_args(CreateAppArgsSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def create_app(args):
     """
     create a app
@@ -236,7 +238,7 @@ def create_app(args):
 
 
 @bp.route('/<appname>')
-@user_require(False)
+@oidc.accept_token(True)
 def get_app(appname):
     """
     Get a single app
@@ -261,12 +263,12 @@ def get_app(appname):
               "git": "git@github.com:kaecloud/console.git",
           }
     """
-    return get_app_raw(appname)
+    return get_app_raw(appname, ["get", ])
 
 
 @bp.route('/<appname>/rollback', methods=['PUT'])
 @use_args(RollbackSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def rollback_app(args, appname):
     """
     rollback specified app
@@ -287,7 +289,7 @@ def rollback_app(args, appname):
     """
     revision = args['revision']
     cluster = args['cluster']
-    app = get_app_raw(appname)
+    app = get_app_raw(appname, ["rollback"])
 
     ns = DEFAULT_APP_NS
 
@@ -345,7 +347,7 @@ def rollback_app(args, appname):
 
 @bp.route('/<appname>/renew', methods=['PUT'])
 @use_args(ClusterArgSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def renew_app(args, appname):
     """
     Force kubernetes to recreate the pods of specified app
@@ -365,7 +367,7 @@ def renew_app(args, appname):
             error: null
     """
     cluster = args['cluster']
-    app = get_app_raw(appname)
+    app = get_app_raw(appname, ["renew", ])
     ns = DEFAULT_APP_NS
 
     with lock_app(appname):
@@ -384,7 +386,7 @@ def renew_app(args, appname):
 
 
 @bp.route('/<appname>', methods=['DELETE'])
-@user_require(True)
+@oidc.accept_token(True)
 def delete_app(appname):
     """
     Delete a single app
@@ -403,7 +405,7 @@ def delete_app(appname):
           application/json:
             error: null
     """
-    app = get_app_raw(appname)
+    app = get_app_raw(appname, ["delete", ])
     tag = app.latest_release.tag if app.latest_release else ""
 
     ns = DEFAULT_APP_NS
@@ -427,8 +429,8 @@ def delete_app(appname):
 
 
 @bp.route('/<appname>/users')
-@user_require(False)
-def get_app_users(appname):
+@oidc.accept_token(True)
+def get_app_roles(appname):
     """
     List users who has permissions to the specified app
     ---
@@ -456,104 +458,20 @@ def get_app_users(appname):
             }
           ]
     """
-    app = get_app_raw(appname)
+    app = get_app_raw(appname, ["get", ])
     return app.list_users()
-
-
-@bp.route('/<appname>/users', methods=['PUT'])
-@use_args(UserSchema())
-@user_require(False)
-def grant_user(args, appname):
-    """
-    Grant permission to a user
-    ---
-    definitions:
-      UserArgs:
-        type: object
-        properties:
-          username:
-            type: string
-          email:
-            type: string
-    parameters:
-      - name: appname
-        in: path
-        type: string
-        required: true
-      - name: grant_user_args
-        in: body
-        required: true
-        schema:
-            $ref: '#/definitions/UserArgs'
-    responses:
-      200:
-        description: error message
-        schema:
-          $ref: '#/definitions/Error'
-        examples:
-          application/json:
-            error: null
-    """
-    app = get_app_raw(appname)
-    if args['username']:
-        user = User.get_by_username(args['username'])
-    else:
-        user = User.get_by_email(args['email'])
-
-    try:
-        app.grant_user(user)
-    except IntegrityError as e:
-        pass
-
-    return DEFAULT_RETURN_VALUE
-
-
-@bp.route('/<appname>/users', methods=['DELETE'])
-@use_args(UserSchema())
-@user_require(False)
-def revoke_user(args, appname):
-    """
-    Revoke someone's permission to a app
-    ---
-    parameters:
-      - name: appname
-        in: path
-        type: string
-        required: true
-      - name: revoke_user_args
-        in: body
-        required: true
-        schema:
-            $ref: '#/definitions/UserArgs'
-    responses:
-      200:
-        description: error message
-        schema:
-          $ref: '#/definitions/Error'
-        examples:
-          application/json:
-            error: null
-    """
-    app = get_app_raw(appname)
-    if args['username']:
-        user = User.get_by_username(args['username'])
-    else:
-        user = User.get(args['user_id'])
-
-    app.revoke_user(user)
-    return DEFAULT_RETURN_VALUE
 
 
 @bp.route('/<appname>/pod/<podname>/log')
 @use_args(PodLogArgsSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def get_app_pod_log(args, appname, podname):
     """
     Get pod log
     """
     cluster = args['cluster']
     container = args.get('container', None)
-    get_app_raw(appname)
+    get_app_raw(appname, ["get"])
     ns = DEFAULT_APP_NS
 
     kwargs = {
@@ -569,7 +487,7 @@ def get_app_pod_log(args, appname, podname):
 
 @bp.route('/<appname>/pods')
 @use_args(ClusterCanarySchema())
-@user_require(False)
+@oidc.accept_token(True)
 def get_app_pods(args, appname):
     """
     Get all pods of the specified app
@@ -592,7 +510,7 @@ def get_app_pods(args, appname):
     """
     cluster = args['cluster']
     canary = args["canary"]
-    app = get_app_raw(appname)
+    app = get_app_raw(appname, ["get"])
     name = appname
     ns = DEFAULT_APP_NS
     if canary:
@@ -604,7 +522,7 @@ def get_app_pods(args, appname):
 
 @bp.route('/<appname>/deployment')
 @use_args(ClusterCanarySchema())
-@user_require(False)
+@oidc.accept_token(True)
 def get_app_k8s_deployment(args, appname):
     """
     Get kubernetes deployment object of the specified app
@@ -627,7 +545,7 @@ def get_app_k8s_deployment(args, appname):
     """
     cluster = args['cluster']
     canary = args['canary']
-    app = get_app_raw(appname)
+    app = get_app_raw(appname, ["get", ])
     name = "{}-canary".format(appname) if canary else appname
     ns = DEFAULT_APP_NS
     if not app:
@@ -639,7 +557,7 @@ def get_app_k8s_deployment(args, appname):
 
 @bp.route('/<appname>/ingress')
 @use_args(ClusterArgSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def get_app_k8s_ingress(args, appname):
     """
     Get kubernetes ingress object of the specified app
@@ -661,7 +579,7 @@ def get_app_k8s_ingress(args, appname):
           ]
     """
     cluster = args['cluster']
-    app = get_app_raw(appname)
+    app = get_app_raw(appname, ["get", ])
     ns = DEFAULT_APP_NS
     if not app:
         abort(404, "app {} not found".format(appname))
@@ -672,7 +590,7 @@ def get_app_k8s_ingress(args, appname):
 
 @bp.route('/<appname>/releases')
 @use_args(PaginationSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def get_app_releases(args, appname):
     """
     List every release of the specified app
@@ -701,14 +619,14 @@ def get_app_releases(args, appname):
             created: 2018-05-24 10:00:25
             tag: v0.0.1
     """
-    app = get_app_raw(appname)
+    app = get_app_raw(appname, ["get", ])
     limit = args['size']
     start = (args['page'] - 1) * limit
     return Release.get_by_app(app.name, start, limit)
 
 
 @bp.route('/<appname>/version/<tag>')
-@user_require(False)
+@oidc.accept_token(True)
 def get_release(appname, tag):
     """
     Get one release of the specified app
@@ -744,7 +662,7 @@ def get_release(appname, tag):
 
 @bp.route('/<appname>/version/<tag>/spec', methods=['POST'])
 @use_args(SpecsArgsSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def update_release_spec(args, appname, tag):
     """
     update release's spec
@@ -807,7 +725,7 @@ def update_release_spec(args, appname, tag):
 
 
 @bp.route('/<appname>/version/<tag>/spec')
-@user_require(False)
+@oidc.accept_token(True)
 def get_release_spec(appname, tag):
     """
     get release's spec
@@ -845,7 +763,7 @@ def get_release_spec(appname, tag):
 
 
 @bp.route('/<appname>/oplogs')
-@user_require(False)
+@oidc.accept_token(True)
 def get_app_oplogs(appname):
     """
     Get oplog list of the specified app
@@ -871,13 +789,13 @@ def get_app_oplogs(appname):
             updated: 2018-05-24 03:17:15
             created: 2018-05-24 10:00:25
     """
-    app = get_app_raw(appname)
+    app = get_app_raw(appname, ["get", ])
     return OPLog.get_by(app_id=app.id)
 
 
 @bp.route('/<appname>/secret', methods=['POST'])
 @use_args(SecretArgsSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def create_secret(args, appname):
     """
     Create secret for app
@@ -912,7 +830,7 @@ def create_secret(args, appname):
     replace = args['replace']
     ns = DEFAULT_APP_NS
     # check if the user can access the App
-    get_app_raw(appname)
+    get_app_raw(appname, ["updateSecret",])
     with handle_k8s_error("Failed to create secret"):
         KubeApi.instance().create_or_update_secret(appname, data, replace=replace, cluster_name=cluster, namespace=ns)
     return DEFAULT_RETURN_VALUE
@@ -920,7 +838,7 @@ def create_secret(args, appname):
 
 @bp.route('/<appname>/secret')
 @use_args(ClusterArgSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def get_secret(args, appname):
     """
     get secret of specified app
@@ -946,14 +864,14 @@ def get_secret(args, appname):
     cluster = args['cluster']
     ns = DEFAULT_APP_NS
     # check if the user can access the App
-    get_app_raw(appname)
+    get_app_raw(appname, ["getSecret", ])
     with handle_k8s_error("Failed to get secret"):
         return KubeApi.instance().get_secret(appname, cluster_name=cluster, namespace=ns)
 
 
 @bp.route('/<appname>/configmap', methods=['POST'])
 @use_args(ConfigMapArgsSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def create_config_map(args, appname):
     """
     Create config for app
@@ -982,7 +900,7 @@ def create_config_map(args, appname):
     replace = args['replace']
     ns = DEFAULT_APP_NS
     # check if the user can access the App
-    get_app_raw(appname)
+    get_app_raw(appname, ["updateConfig", ])
     with handle_k8s_error("Failed to create config map"):
         KubeApi.instance().create_or_update_config_map(appname, cm_data, replace=replace, cluster_name=cluster, namespace=ns)
     return DEFAULT_RETURN_VALUE
@@ -990,7 +908,7 @@ def create_config_map(args, appname):
 
 @bp.route('/<appname>/configmap')
 @use_args(ClusterArgSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def get_config_map(args, appname):
     """
     get config of specified app
@@ -1016,26 +934,26 @@ def get_config_map(args, appname):
     cluster = args['cluster']
     ns = DEFAULT_APP_NS
     # check if the user can access the App
-    get_app_raw(appname)
+    get_app_raw(appname, ["getConfig", ])
     with handle_k8s_error("Failed to get config map"):
         raw_data = KubeApi.instance().get_config_map(appname, cluster_name=cluster, namespace=ns)
         return raw_data
 
 
 @bp.route('/<appname>/yaml')
-@user_require(False)
+@oidc.accept_token(True)
 def list_app_yaml(appname):
     """
     Create or Update app yaml
     ---
     """
-    app = get_app_raw(appname)
+    app = get_app_raw(appname, ["get", ])
     return AppYaml.get_by_app(app)
 
 
 @bp.route('/<appname>/yaml', methods=['POST'])
 @use_args(AppYamlArgsSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def create_app_yaml(args, appname):
     """
     Create or Update app yaml
@@ -1059,7 +977,7 @@ def create_app_yaml(args, appname):
         return abort(400, 'specs text is invalid {}'.format(str(e)))
 
     # check if the user can access the App
-    app = get_app_raw(appname)
+    app = get_app_raw(appname, "create")
     app_yaml = AppYaml.get_by_app_and_name(app, name)
     if not app_yaml:
         AppYaml.create(name, app, specs_text, comment)
@@ -1070,7 +988,7 @@ def create_app_yaml(args, appname):
 
 @bp.route('/<appname>/name/<name>/yaml', methods=['POST'])
 @use_args(AppYamlArgsSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def update_app_yaml(args, appname, name):
     """
     Delete app yaml
@@ -1092,7 +1010,7 @@ def update_app_yaml(args, appname, name):
     except ValidationError as e:
         return abort(400, 'specs text is invalid {}'.format(str(e)))
 
-    app = get_app_raw(appname)
+    app = get_app_raw(appname, ["update"])
     app_yaml = AppYaml.get_by_app_and_name(app, name)
     if not app_yaml:
         abort(404, "AppYaml(app: {}, name:{}) not found".format(appname, name))
@@ -1103,13 +1021,13 @@ def update_app_yaml(args, appname, name):
 
 
 @bp.route('/<appname>/name/<name>/yaml', methods=['DELETE'])
-@user_require(False)
+@oidc.accept_token(True)
 def delete_app_yaml(appname, name):
     """
     Delete app yaml
     ---
     """
-    app = get_app_raw(appname)
+    app = get_app_raw(appname, ["delete",])
     app_yaml = AppYaml.get_by_app_and_name(app, name)
     if not app_yaml:
         abort(404, "AppYaml(app: {}, name:{}) not found".format(appname, name))
@@ -1119,7 +1037,7 @@ def delete_app_yaml(appname, name):
 
 @bp.route('/register', methods=['POST'])
 @use_args(RegisterSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def register_release(args):
     """
     Register a release of the specified app
@@ -1241,7 +1159,7 @@ def register_release(args):
 
 @bp.route('/<appname>/scale', methods=['PUT'])
 @use_args(ScaleSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def scale_app(args, appname):
     """
     scale specified app
@@ -1339,7 +1257,7 @@ def scale_app(args, appname):
 
 @bp.route('/<appname>/deploy', methods=['PUT'])
 @use_args(DeploySchema())
-@user_require(False)
+@oidc.accept_token(True)
 def deploy_app(args, appname):
     """
     deploy app to kubernetes
@@ -1390,12 +1308,7 @@ def deploy_app(args, appname):
     app_yaml_name = args['app_yaml_name']
     ns = DEFAULT_APP_NS
 
-    app = App.get_by_name(appname)
-    if not app:
-        abort(404, 'app {} not found'.format(appname))
-
-    if not g.user.granted_to_app(app):
-        abort(403, 'You\'re not granted to this app, ask administrators for permission')
+    app = get_app_raw(appname, ["deploy"])
 
     if cluster in PROTECTED_CLUSTER and app.rank != 1:
         abort(403, 'This app is not permitted to deploy on the cluster used for production.')
@@ -1493,7 +1406,7 @@ def deploy_app(args, appname):
 
 @bp.route('/<appname>/undeploy', methods=['DELETE'])
 @use_args(OptionalClusterArgSchema())
-@user_require(True)
+@oidc.accept_token(True)
 def undeploy_app(args, appname):
     """
     if cluster is specified, then delete the deployment in specified cluster.
@@ -1514,7 +1427,7 @@ def undeploy_app(args, appname):
             error: null
     """
     cluster = args.get('cluster', KubeApi.ALL_CLUSTER)
-    app = get_app_raw(appname)
+    app = get_app_raw(appname, ["deploy"])
     tag = app.latest_release.tag if app.latest_release else ""
 
     ns = DEFAULT_APP_NS
@@ -1537,7 +1450,7 @@ def undeploy_app(args, appname):
 
 @bp.route('/<appname>/canary/deploy', methods=['PUT'])
 @use_args(DeploySchema())
-@user_require(False)
+@oidc.accept_token(True)
 def deploy_app_canary(args, appname):
     """
     deploy app canary version to kubernetes
@@ -1590,12 +1503,7 @@ def deploy_app_canary(args, appname):
     ns = DEFAULT_APP_NS
 
     with lock_app(appname):
-        app = App.get_by_name(appname)
-        if not app:
-            abort(404, 'app {} not found'.format(appname))
-
-        if not g.user.granted_to_app(app):
-            abort(403, 'You\'re not granted to this app, ask administrators for permission')
+        app = get_app_raw(appname, ["deploy", ])
 
         if app.type != "web":
             abort(403, "Only web app can deploy canary release")
@@ -1677,7 +1585,7 @@ def deploy_app_canary(args, appname):
 
 @bp.route('/<appname>/canary', methods=['DELETE'])
 @use_args(ClusterArgSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def undeploy_app_canary(args, appname):
     """
     delete app canary release in kubernetes
@@ -1687,17 +1595,12 @@ def undeploy_app_canary(args, appname):
 
     ns = DEFAULT_APP_NS
 
-    app = App.get_by_name(appname)
-    if not app:
-        abort(404, 'app {} not found'.format(appname))
+    app = get_app_raw(appname, ["deploy", ])
 
     with lock_app(appname):
         canary_info = _get_canary_info(appname, cluster)
         if not canary_info['status']:
             return DEFAULT_RETURN_VALUE
-
-        if not g.user.granted_to_app(app):
-            abort(403, 'You\'re not granted to this app, ask administrators for permission')
 
         with handle_k8s_error("Error when delete app canary {}".format(appname)):
             KubeApi.instance().undeploy_app_canary(appname, cluster_name=cluster, ignore_404=True, namespace=ns)
@@ -1715,7 +1618,7 @@ def undeploy_app_canary(args, appname):
 
 @bp.route('/<appname>/canary/weight', methods=['POST'])
 @use_args(AppCanaryWeightArgSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def set_app_canary_weight(args, appname):
     """
     delete app canary release in kubernetes
@@ -1754,7 +1657,7 @@ def set_app_canary_weight(args, appname):
 
 @bp.route('/<appname>/canary')
 @use_args(ClusterArgSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def get_app_canary_info(args, appname):
     """
     delete app canary release in kubernetes
@@ -1762,19 +1665,13 @@ def get_app_canary_info(args, appname):
     """
     cluster = args['cluster']
 
-    app = App.get_by_name(appname)
-    if not app:
-        abort(404, 'app {} not found'.format(appname))
-
-    if not g.user.granted_to_app(app):
-        abort(403, 'You\'re not granted to this app, ask administrators for permission')
-
+    app = get_app_raw(appname, ["get", ])
     return _get_canary_info(appname, cluster)
 
 
 @bp.route('/<appname>/abtesting', methods=['PUT'])
 @use_args(ABTestingSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def set_app_abtesting_rules(args, appname):
     """
     set ABTesting rules for specified app
@@ -1817,12 +1714,7 @@ def set_app_abtesting_rules(args, appname):
 
     ns = DEFAULT_APP_NS
 
-    app = App.get_by_name(appname)
-    if not app:
-        abort(404, 'app {} not found'.format(appname))
-
-    if not g.user.granted_to_app(app):
-        abort(403, 'You\'re not granted to this app, ask administrators for permission')
+    app = get_app_raw(appname, ["update", ])
 
     canary_info = _get_canary_info(appname, cluster)
     if not canary_info['status']:
@@ -1835,7 +1727,7 @@ def set_app_abtesting_rules(args, appname):
 
 @bp.route('/<appname>/abtesting')
 @use_args(ClusterArgSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def get_app_abtesting_rules(args, appname):
     """
     set ABTesting rules for specified app
@@ -1891,7 +1783,7 @@ def get_app_abtesting_rules(args, appname):
 
 @bp.route('/<appname>/container/stop', methods=['POST'])
 @use_args(PodEntryArgsSchema())
-@user_require(False)
+@oidc.accept_token(True)
 def stop_container(args, appname):
     """
     stop container
@@ -1917,7 +1809,7 @@ def stop_container(args, appname):
 
 
 @bp.route('/<appname>/build/kill', methods=['DELETE'])
-@user_require(False)
+@oidc.accept_token(True)
 def kill_build_task(appname):
     """
     kill build task

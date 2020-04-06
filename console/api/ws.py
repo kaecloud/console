@@ -11,6 +11,8 @@ from geventwebsocket.exceptions import WebSocketError
 from urllib3.exceptions import ProtocolError
 import redis_lock
 
+from console.app import oidc
+from console.api.util import check_rbac
 from console.libs.utils import (
     logger, make_app_watcher_channel_name, make_msg, make_errmsg, send_email, bearychat_sendmsg,
     make_app_redis_key,
@@ -77,7 +79,7 @@ def ignore_socket_dead(f):
 
 @ws.route('/app/<appname>/pods/events')
 @ignore_socket_dead
-@ws_user_require(False)
+@oidc.accept_token(True)
 def get_app_pods_events(socket, appname):
     payload = None
     socket_active_ts = time.time()
@@ -106,7 +108,7 @@ def get_app_pods_events(socket, appname):
         socket.send(make_errmsg('app {} not found'.format(appname), jsonize=True))
         return
 
-    if not g.user.granted_to_app(app):
+    if not check_rbac(app, ["get", ]):
         socket.send(make_errmsg('You\'re not granted to this app, ask administrators for permission', jsonize=True))
         return
 
@@ -182,7 +184,7 @@ def get_app_pods_events(socket, appname):
 
 @ws.route('/app/<appname>/build')
 @ignore_socket_dead
-@ws_user_require(False)
+@oidc.accept_token(True)
 def build_app(socket, appname):
     """Build an image for the specified release.
     ---
@@ -276,7 +278,7 @@ def build_app(socket, appname):
         socket.send(make_errmsg('app {} not found'.format(appname), jsonize=True))
         return
 
-    if not g.user.granted_to_app(app):
+    if not check_rbac(app, ["build", ]):
         socket.send(make_errmsg('You\'re not granted to this app, ask administrators for permission', jsonize=True))
         return
     release = app.get_release_by_tag(tag)
@@ -425,7 +427,7 @@ def get_job_log_events(socket, jobname):
 
 @ws.route('/app/<appname>/entry')
 @ignore_socket_dead
-@ws_user_require(False)
+@oidc.accept_token(True)
 def enter_pod(socket, appname):
     payload = None
     while True:
@@ -445,7 +447,7 @@ def enter_pod(socket, appname):
         socket.send(make_errmsg('app {} not found'.format(appname), jsonize=True))
         return
 
-    if not g.user.granted_to_app(app):
+    if not check_rbac(app, ["enterContainer", ]):
         socket.send(make_errmsg('You\'re not granted to this app, ask administrators for permission', jsonize=True))
         return
 

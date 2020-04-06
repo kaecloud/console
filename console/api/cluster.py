@@ -1,11 +1,12 @@
-from console.libs.view import create_api_blueprint, user_require
+from console.app import oidc
+from console.libs.view import create_api_blueprint
 from console.libs.k8s import KubeApi
 
 bp = create_api_blueprint('cluster', __name__, 'cluster')
 
 
 @bp.route('/')
-@user_require(False)
+@oidc.accept_token(True)
 def list_cluster():
     """
     List all the available clusters

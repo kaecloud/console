@@ -20,6 +20,7 @@ FAKE_USER = {
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PROJECT_NAME = LOGGER_NAME = 'console'
+SERVER_HOST = "localhost:5000"
 CONFIG_ROOT_DIR = '/etc/kae-console'
 CONSOLE_CONFIG_PATHS = [
     os.path.join(CONFIG_ROOT_DIR, "config.py"),
@@ -58,6 +59,14 @@ OAUTH_APP_NAME = 'gitlab'
 GITLAB_CLIENT_ID = getenv('GITLAB_CLIENT_ID')
 GITLAB_CLIENT_SECRET = getenv('GITLAB_CLIENT_SECRET')
 GITLAB_HOST = getenv('GITLAB_HOST', default='gitlab.com')
+
+#############################################################
+# SSO related config
+#############################################################
+SSO_CLIENT_ID = ""
+SSO_CLIENT_SECRET = ""
+SSO_REALM = ""
+SSO_HOST = ""
 
 EMAIL_DOMAIN = getenv('EMAIL_DOMAIN')
 BOT_WEBHOOK_URL = getenv('BOT_WEBHOOK_URL')

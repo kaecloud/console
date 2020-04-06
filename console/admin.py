@@ -22,7 +22,6 @@ class ConsoleModelView(sqla.ModelView):
 
 
 def init_admin(admin):
-    admin.add_view(ConsoleModelView(User, db.session, endpoint='user_db_admin'))
     admin.add_view(ConsoleModelView(App, db.session, endpoint='app_db_admin'))
     admin.add_view(ConsoleModelView(AppYaml, db.session, endpoint='app_yaml_db_admin'))
     admin.add_view(ConsoleModelView(Job, db.session, endpoint='job_db_admin'))

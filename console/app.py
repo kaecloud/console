@@ -3,6 +3,7 @@
 import yaml
 import json
 import logging
+import tempfile
 
 from raven.contrib.flask import Sentry
 from celery import Celery, Task
@@ -10,6 +11,7 @@ from flask import jsonify, g, Flask, request
 # from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_admin import Admin
+from flask_oidc import OpenIDConnect
 from flasgger import Swagger
 
 from werkzeug.utils import import_string
@@ -17,6 +19,8 @@ from werkzeug.utils import import_string
 from console.config import (
     DEBUG, SENTRY_DSN, TASK_PUBSUB_CHANNEL,
     TASK_PUBSUB_EOF, BEARYCHAT_CHANNEL,
+    SSO_CLIENT_ID, SSO_CLIENT_SECRET, SSO_REALM, SSO_HOST,
+    SERVER_HOST,
 )
 from console.ext import sess, db, mako, cache, init_oauth, rds, sockets
 from console.libs.datastructure import DateConverter
@@ -193,6 +197,42 @@ definitions:
 """
 
 
+def make_oidc(app):
+    client_secret_json = {
+        "web": {
+            "issuer": f"https://{SSO_HOST}/auth/realms/{SSO_REALM}",
+            "auth_uri": f"https://{SSO_HOST}/auth/realms/{SSO_REALM}/protocol/openid-connect/auth",
+            "client_id": SSO_CLIENT_ID,
+            "client_secret": SSO_CLIENT_SECRET,
+            "redirect_uris": [
+                f"http://{SERVER_HOST}/*"
+            ],
+            "userinfo_uri": f"https://{SSO_HOST}/auth/realms/{SSO_REALM}/protocol/openid-connect/userinfo", 
+            "token_uri": f"https://{SSO_HOST}/auth/realms/{SSO_REALM}/protocol/openid-connect/token",
+            "token_introspection_uri": f"https://{SSO_HOST}/auth/realms/{SSO_REALM}/protocol/openid-connect/token/introspect"
+        }
+    }
+    # create a temporary file for client secret json
+    client_secret_fobj = tempfile.NamedTemporaryFile()
+    json.dump(client_secret_json, client_secret_fobj) 
+    client_secret_fobj.flush()
+
+    app.config.update({
+        'SECRET_KEY': 'SomethingNotEntirelySecret',
+        'TESTING': True,
+        'DEBUG': True,
+        'OIDC_CLIENT_SECRETS': client_secret_fobj.name,
+        'OIDC_ID_TOKEN_COOKIE_SECURE': False,
+        'OIDC_REQUIRE_VERIFIED_EMAIL': False,
+        'OIDC_OPENID_REALM': f'http://{SERVER_HOST}/oidc_callback'
+    })
+    oidc = OpenIDConnect(app)
+    # delete temporary file
+    client_secret_fobj.close()
+
+    return oidc
+
+
 def make_celery(app):
     celery = Celery(app.import_name)
     celery.config_from_object('console.config')
@@ -307,4 +347,5 @@ def create_app():
 
 
 app = create_app()
+oidc = make_oidc(app)
 celery = make_celery(app)

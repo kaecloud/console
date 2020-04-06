@@ -99,4 +99,3 @@ def user_require(privileged=False):
         return _
     return _user_require
 
-

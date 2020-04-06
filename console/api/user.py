@@ -3,7 +3,6 @@
 from flask import url_for, jsonify, session, request, redirect, abort, g
 from authlib.client.errors import OAuthError
 
-from console.config import OAUTH_APP_NAME
 from console.ext import oauth_client, update_token, delete_token
 from console.libs.view import DEFAULT_RETURN_VALUE, user_require, create_ajax_blueprint
 from console.models.user import User, get_current_user
@@ -52,47 +51,3 @@ def authorized():
         return redirect(next_url)
     return redirect(url_for('user.login'))
 
-
-@bp.route('/login')
-def login():
-    user = get_current_user()
-    next_url = request.args.get('next')
-    if user:
-        if next_url:
-            return redirect(next_url)
-        return jsonify(user.to_dict())
-    # always generate https redirect url
-    redirect_uri = url_for('user.authorized', _external=True, _scheme='https')
-    session['next'] = next_url
-    return oauth_client.authorize_redirect(redirect_uri)
-
-
-@bp.route('/logout')
-def logout():
-    session.pop('user_id', None)
-    delete_token(OAUTH_APP_NAME)
-    return DEFAULT_RETURN_VALUE
-
-
-@bp.route('/me')
-@user_require(False)
-def me():
-    """
-    get information of current user
-    ---
-    responses:
-      200:
-        description: user object
-        schema:
-          $ref: '#/definitions/User'
-        examples:
-          application/json: {
-              "username": "haha",
-              "nickname": "dude",
-              "email": "name@example.com",
-              "avatar": "xxx.png",
-              "privileged": True,
-              "data": "ggg"
-            }
-   """
-    return g.user
