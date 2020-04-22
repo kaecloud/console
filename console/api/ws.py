@@ -11,7 +11,6 @@ from geventwebsocket.exceptions import WebSocketError
 from urllib3.exceptions import ProtocolError
 import redis_lock
 
-from console.app import oidc
 from console.api.util import check_rbac
 from console.libs.utils import (
     logger, make_app_watcher_channel_name, make_msg, make_errmsg, send_email, bearychat_sendmsg,
@@ -23,7 +22,7 @@ from console.libs.validation import (
     build_args_schema, cluster_canary_schema, pod_entry_schema
 )
 from console.libs.view import create_api_blueprint
-from console.models import App, Job, User, get_current_user
+from console.models import App, User, get_current_user
 from console.tasks import celery_task_stream_response, build_image
 from console.ext import rds, db
 from console.config import (
@@ -38,21 +37,16 @@ def send_ping(sock):
     sock.send_frame("PP", sock.OPCODE_PING)
 
 
-def ws_user_require(privileged=False):
+def ws_user_require(require_token=False, scopes_required=None):
     def _user_require(func):
         @wraps(func)
         def _(socket, *args, **kwargs):
             if current_app.config['DEBUG']:
-                g.user = User(**FAKE_USER)
+                g.user = User(FAKE_USER)
             else:
-                g.user = get_current_user()
+                g.user = get_current_user(require_token, scopes_required)
             if not g.user:
-                # TODO: change the message
-                socket.send(make_errmsg('please login, login url: {}?next={}'.format(url_for('user.login'), request.url), jsonize=True))
-                socket.close()
-                return
-            elif privileged and g.user.privileged != 1:
-                socket.send(make_errmsg('dude you are not administrator', jsonize=True))
+                socket.send(make_errmsg('invalid token or user/password', jsonize=True))
                 socket.close()
                 return
 
@@ -79,7 +73,7 @@ def ignore_socket_dead(f):
 
 @ws.route('/app/<appname>/pods/events')
 @ignore_socket_dead
-@oidc.accept_token(True)
+@ws_user_require(True)
 def get_app_pods_events(socket, appname):
     payload = None
     socket_active_ts = time.time()
@@ -184,7 +178,7 @@ def get_app_pods_events(socket, appname):
 
 @ws.route('/app/<appname>/build')
 @ignore_socket_dead
-@oidc.accept_token(True)
+@ws_user_require(True)
 def build_app(socket, appname):
     """Build an image for the specified release.
     ---
@@ -388,46 +382,9 @@ def build_app(socket, appname):
                     break
 
 
-@ws.route('/job/<jobname>/log/events')
-@ignore_socket_dead
-@ws_user_require(False)
-def get_job_log_events(socket, jobname):
-    """
-    SSE endpoint fo job log
-    ---
-    responses:
-      200:
-        description: event stream
-        schema:
-          type: object
-    """
-    ns = DEFAULT_JOB_NS
-
-    job = Job.get_by_name(jobname)
-    if not job:
-        socket.send(json.dumps({"error": "job {} not found".format(jobname)}))
-        return
-    with session_removed():
-        try:
-            pods = KubeApi.instance().get_job_pods(jobname, namespace=ns)
-        except ApiException as e:
-            socket.send(json.dumps({"error": "Error when get job pods: {}".format(str(e))}))
-            return
-        if pods.items:
-            podname = pods.items[0].metadata.name
-            try:
-                for line in KubeApi.instance().follow_pod_log(podname=podname, namespace=ns):
-                    socket.send(json.dumps({'data': line}))
-            except ApiException as e:
-                socket.send(json.dumps({"error": "Error when follow job log, please retry: {}".format(str(e))}))
-                return
-        else:
-            socket.send(json.dumps({"error": "no log, please retry"}))
-
-
 @ws.route('/app/<appname>/entry')
 @ignore_socket_dead
-@oidc.accept_token(True)
+@ws_user_require(True)
 def enter_pod(socket, appname):
     payload = None
     while True:

@@ -31,34 +31,6 @@ def handle_k8s_err(msg_prefix, clean_func=None):
         abort(500, msg_prefix)
 
 
-def check_rbac(app, actions):
-    username = g.oidc_token_info["preferred_username"]
-    group = None
-    # every group has a role named in format "group-<group-name>"
-    # so user in the group will inherit this role and we can extract group name from the role name
-    for role in g.oidc_token_info.get["realm_access"].get("roles", []):
-        if role.startswith("group"):
-            group = role.split("-")[1]
-    if group is None:
-        return False
-    user_roles = UserRoleBinding.get_roles_by_name(username) 
-    group_roles = GroupRoleBinding.get_roles_by_name(group)
-
-    app_role_names = set(role.name for role in app.roles)
-    for role in user_roles:
-        if role not in app_role_names:
-            continue
-        if len(set(actions) - set(role.get_actions)) == 0:
-            return True
-
-    for role in group_roles:
-        if role not in app_role_names:
-            continue
-        if len(set(actions) - set(role.get_actions)) == 0:
-            return True
-    return False
-
-
 # TODO
 class CodeFetcher(object):
     @classmethod

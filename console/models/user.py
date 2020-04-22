@@ -2,171 +2,107 @@
 
 import json
 from addict import Dict
-from authlib.client.errors import OAuthError
-from flask import abort, session, request
+from flask import abort, session, request, g
 from sqlalchemy.exc import IntegrityError
 
-from console.config import OAUTH_APP_NAME, EMAIL_DOMAIN
-from console.ext import db, fetch_token, update_token, oauth_client, private_token_client, PrivateTokenClientError
+from console.config import (
+    EMAIL_DOMAIN, KEYCLOAK_ADMIN_USER, KEYCLOAK_ADMIN_PASSWD
+)
+from console.ext import sso, oidc
 from console.models.base import BaseModelMixin
 from console.libs.utils import logger
 
 
-# def get_current_user():
-#     current_user = session.get('current_user_id', None)
-#     if current_user is None:
-#         user = User.get_by_id(user_id)
-#         if not user:
-#             session.pop('user_id')
-#         else:
-#             return user
-#     token = fetch_token(OAUTH_APP_NAME)
-#     if not token:
-#         # check if http headers contain personal private token
-#         private_token = request.headers.get('X-Private-Token', None)
-#         if not private_token:
-#             return None
-#         try:
-#             authlib_user = private_token_client.profile(private_token)
-#         except PrivateTokenClientError as e:
-#             return abort(e.code, 'fetch {} profile failed: {}'.format(OAUTH_APP_NAME, e))
-#         except Exception as e:
-#             logger.exception('fetch {} profile failed: {}'.format(OAUTH_APP_NAME, e))
-#             return abort(500, 'fetch {} profile failed: {}'.format(OAUTH_APP_NAME, e))
-#         user = User.set_authlib_user(authlib_user)
-#     else:
-#         try:
-#             # better for other oauth provider
-#             authlib_user = oauth_client.profile()
-#             if EMAIL_DOMAIN and (not authlib_user.email.endswith('@' + EMAIL_DOMAIN)):
-#                 return abort(400, "invalid email {}".format(authlib_user.email))
-# 
-#             user = User.set_authlib_user(authlib_user)
-#         except OAuthError as e:
-#             return abort(400, 'oauth exception: {}, your session has been reset'.format(e))
-#         except Exception as e:
-#             logger.exception('fetch {} profile failed: {}'.format(OAUTH_APP_NAME, e))
-#             return abort(500, 'fetch {} profile failed: {}'.format(OAUTH_APP_NAME, e))
-# 
-#     session['user_id'] = user.id
-#     return user
-
-
-# class User(BaseModelMixin):
-#     __tablename__ = "user"
-# 
-#     username = db.Column(db.CHAR(50), nullable=False, unique=True)
-#     email = db.Column(db.String(100), nullable=False, unique=True, index=True)
-#     nickname = db.Column(db.CHAR(50), nullable=False)
-#     avatar = db.Column(db.String(2000), nullable=False)
-#     privileged = db.Column(db.Integer, default=0)
-#     data = db.Column(db.Text)
-# 
-#     @classmethod
-#     def create(cls, username=None, email=None, nickname=None, avatar=None,
-#                privileged=0, data=None):
-#         if isinstance(data, dict):
-#             data = json.dumps(data)
-#         user = cls(username=username, email=email, nickname=nickname,
-#                    avatar=avatar, data=data)
-#         try:
-#             db.session.add(user)
-#             db.session.commit()
-#         except IntegrityError:
-#             db.session.rollback()
-#             raise
-#         return user
-# 
-#     def __str__(self):
-#         return '{class_} {u.name} {u.email}'.format(
-#             class_=self.__class__,
-#             u=self,
-#         )
-# 
-#     @classmethod
-#     def get_by_username(cls, username):
-#         return cls.query.filter_by(username=username).first()
-# 
-#     @classmethod
-#     def get_by_email(cls, email):
-#         return cls.query.filter_by(email=email).first()
-# 
-#     @classmethod
-#     def get_by_id(cls, user_id):
-#         return cls.query.filter_by(id=user_id).first()
-# 
-#     @classmethod
-#     def set_authlib_user(cls, auth_user):
-#         user = cls.query.filter_by(email=auth_user.email).first()
-#         username = auth_user.preferred_username
-#         nickname = auth_user.nickname
-#         if username is None:
-#             username = auth_user.name
-#         if nickname is None:
-#             nickname = auth_user.name
-# 
-#         avatar = auth_user.picture
-#         data = json.dumps(dict(auth_user))
-#         if not user:
-#             user = cls.create(username=username, email=auth_user.email, nickname=nickname, avatar=avatar, data=data)
-#         else:
-#             user.update(username=username, email=auth_user.email, nickname=nickname, avatar=avatar,
-#                         data=data)
-# 
-#         return user
-# 
-#     def granted_to_app(self, app):
-#         if self.privileged:
-#             return True
-# 
-#         from console.models.app import App
-#         return self.apps.filter(App.id == app.id).first() is not None
-# 
-#     def list_app(self, start=0, limit=500):
-#         from console.models.app import App
-#         if self.privileged:
-#             return App.get_all()[start: start+limit]
-#         return self.apps.all()[start: start+limit]
-# 
-#     def list_job(self):
-#         from console.models.job import Job
-#         if self.privileged:
-#             return Job.get_all()
-#         return self.jobs.all()
-# 
-#     def granted_to_job(self, job):
-#         if self.privileged:
-#             return True
-# 
-#         from console.models.job import Job
-#         return self.jobs.filter(Job.id == job.id).first() is not None
-# 
-#     def elevate_privilege(self):
-#         self.privileged = 1
-#         db.session.add(self)
-#         db.session.commit()
-# 
-#     def __str__(self):
-#         return self.nickname
-
-
-def get_current_user(token=True):
-    user = session.get('current_user', None)
-    if user is None:
-        if token is True:
-            pass 
-        else:
-            pass 
-
-        user = User.get_by_id(user_id)
+def get_current_user(require_token=False, scopes_required=None):
+    username = session.get('current_username', None)
+    if username is not None:
+        user = User.get_by_username(username)
         if not user:
-            session.pop('user_id')
+            session.pop('current_username')
         else:
             return user
+        # Basic authentication
+        # we use keycloak admin user and password to do authentication, 
+        # and pass a real user through form, argument, or http header
+        # this is mainly used in feishu bot, because sso's admin account can't get token of individual user
+        auth = request.authorization
+        if auth is not None:
+            username, password = auth.username, auth.password
+            if username != KEYCLOAK_ADMIN_USER or password != KEYCLOAK_ADMIN_PASSWD:
+                return None
+            real_user = None
+            if 'real_user' in request.form:
+                token = request.form['real_user']
+            elif 'real_user' in request.args:
+                real_user = request.args['real_user']
+            else:
+                real_user = request.headers.get("X-REAL-USER")
+            if real_user is None:
+                return None 
+            return sso.get_user(real_user)
 
-    session['current_user'] = user
+        # token authentication
+        token = None
+        if 'Authorization' in request.headers and request.headers['Authorization'].startswith('Bearer '):
+            token = request.headers['Authorization'].split(None,1)[1].strip()
+        if 'access_token' in request.form:
+            token = request.form['access_token']
+        elif 'access_token' in request.args:
+            token = request.args['access_token']
+
+        validity = oidc.validate_token(token, scopes_required)
+        if (validity is True) or (not require_token):
+            user = User(g.oidc_token_info)
+        else:
+            return None
+    session['current_username'] = user.username
     return user
 
 
+class Group(Dict):
+    @classmethod
+    def get_all(cls):
+        pass 
+
+    def __str__(self):
+        return '{class_} {u.id} {u.name}'.format(
+            class_=self.__class__,
+            u=self,
+        )
+
 class User(Dict):
-    pass
+    def __init__(self, d):
+        super(User, self).__init__(d)
+
+    def get_group(self):
+        gid = self['group_id']
+        grp = sso.get_group(gid)
+        if grp is not None:
+            grp = Group(grp)
+        return grp
+
+    def __str__(self):
+        return '{class_} {u.username} {u.email}'.format(
+            class_=self.__class__,
+            u=self,
+        )
+
+    @classmethod
+    def get_by_username(cls, username):
+        d = sso.get_user(username)
+        if d is not None:
+            d = User(d)
+        return d
+
+    def list_app(self, start=0, limit=500):
+        from console.models.rbac import UserRoleBinding, GroupRoleBinding, RBACAction
+        user_roles = UserRoleBinding.get_roles_by_name(self.username)
+        group_roles = GroupRoleBinding.get_roles_by_id(self.group_id)
+        apps = []
+        for role in user_roles + group_roles:
+            if RBACAction.ADMIN in role.action_list:
+                return role.app_list[start: start+limit]
+            if RBACAction.GET in role.action_list:
+                apps += role.app_list
+        return apps[start: start+limit]
+            

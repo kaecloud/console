@@ -8,7 +8,7 @@ from numbers import Number
 from console.libs.k8s import KubeApi
 
 from kaelib.spec import (
-    StrictSchema, validate_cpu, validate_memory, validate_appname, validate_jobname,
+    StrictSchema, validate_cpu, validate_memory, validate_appname
     validate_app_type, validate_tag,
 )
 
@@ -294,35 +294,6 @@ class AppYamlArgsSchema(StrictSchema):
     name = fields.Str(required=True)
     specs_text = fields.Str(required=True)
     comment = fields.Str()
-
-
-class JobArgsSchema(StrictSchema):
-    jobname = fields.Str(validate=validate_jobname)
-    git = fields.Str()
-    branch = fields.Str(missing='master')
-    commit = fields.Str()
-    comment = fields.Str()
-
-    shell = fields.Bool(missing=False)
-
-    image = fields.Str()
-    command = fields.Str()
-    gpu = fields.Int()
-    autoRestart = fields.Bool(missing=False)
-    cluster = fields.Str(validate=validate_cluster_name)
-
-    specs_text = fields.Str()
-
-    @validates_schema(pass_original=True)
-    def further_check(self, data, original_data):
-        if 'specs_text' not in data:
-            required_fields = (
-                'jobname', 'image',
-                'command'
-            )
-            for field in required_fields:
-                if field not in original_data:
-                    raise ValidationError("{} is required when specs_text is null".format(field))
 
 
 class PodEntryArgsSchema(StrictSchema):

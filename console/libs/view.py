@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import json
-from flask import Blueprint, jsonify, url_for, redirect, g, current_app, abort, request
+from flask import Blueprint, jsonify, url_for, redirect, g, current_app, abort, request, session
 from flask_mako import render_template
 from functools import partial, wraps
 
@@ -81,21 +81,18 @@ def create_api_blueprint(name, import_name, url_prefix=None, jsonize=True, handl
     return bp
 
 
-def user_require(privileged=False):
+def user_require(require_token=False, scopes_required=None):
     def _user_require(func):
         @wraps(func)
         def _(*args, **kwargs):
             if current_app.config['DEBUG']:
-                g.user = User(**FAKE_USER)
+                g.user = User(FAKE_USER)
             else:
-                g.user = get_current_user()
+                g.user = get_current_user(require_token, scopes_required)
+
             if not g.user:
                 # TODO: change the message
-                abort(403, '{}?next={}'.format(url_for('user.login'), request.url))
-            elif privileged and g.user.privileged != 1:
-                abort(403, 'dude you are not administrator')
-
+                abort(403, "please provide valid token or user/password")
             return func(*args, **kwargs)
         return _
     return _user_require
-

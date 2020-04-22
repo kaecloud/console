@@ -22,7 +22,7 @@ from console.config import (
     SSO_CLIENT_ID, SSO_CLIENT_SECRET, SSO_REALM, SSO_HOST,
     SERVER_HOST,
 )
-from console.ext import sess, db, mako, cache, init_oauth, rds, sockets
+from console.ext import sess, db, mako, cache, rds, sockets, oidc
 from console.libs.datastructure import DateConverter
 from console.libs.jsonutils import VersatileEncoder
 from console.libs.utils import bearychat_sendmsg
@@ -95,25 +95,6 @@ definitions:
       updated:
         type: string
       name:
-        type: string
-  Job:
-    type: object
-    properties:
-      id:
-        type: integer
-      created:
-        type: string
-      updated:
-        type: string
-      name:
-        type: string
-      git:
-        type: string
-      branch:
-        type: string
-      commit:
-        type: string
-      specs_text:
         type: string
   Error:
     type: object
@@ -197,7 +178,7 @@ definitions:
 """
 
 
-def make_oidc(app):
+def init_oidc(oidc, app):
     client_secret_json = {
         "web": {
             "issuer": f"https://{SSO_HOST}/auth/realms/{SSO_REALM}",
@@ -226,7 +207,7 @@ def make_oidc(app):
         'OIDC_REQUIRE_VERIFIED_EMAIL': False,
         'OIDC_OPENID_REALM': f'http://{SERVER_HOST}/oidc_callback'
     })
-    oidc = OpenIDConnect(app)
+    oidc.init_app(app)
     # delete temporary file
     client_secret_fobj.close()
 
@@ -285,11 +266,12 @@ def create_app():
 
     make_celery(app)
     db.init_app(app)
-    init_oauth(app)
     mako.init_app(app)
     cache.init_app(app)
     sess.init_app(app)
     sockets.init_app(app)
+
+    init_oidc(oidc, app)
 
     migrate = Migrate(app, db)
 
@@ -347,5 +329,4 @@ def create_app():
 
 
 app = create_app()
-oidc = make_oidc(app)
 celery = make_celery(app)

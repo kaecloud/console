@@ -14,19 +14,11 @@ from console.models.base import BaseModelMixin
 from kaelib.spec import app_specs_schema
 
 
-app_user_association = db.Table('app_user_association',
-    db.Column('app_id', db.Integer, db.ForeignKey('app.id'), primary_key=True),
-    db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True)
-)
-
-
 class App(BaseModelMixin):
     __tablename__ = "app"
     name = db.Column(db.CHAR(64), nullable=False, unique=True)
     git = db.Column(db.String(255), nullable=False)
     type = db.Column(db.CHAR(64), nullable=False)
-    users = db.relationship('User', secondary=app_user_association,
-                            backref=db.backref('apps', lazy='dynamic'), lazy='dynamic')
     rank = db.Column(db.Integer, default=0)
 
     def __str__(self):
@@ -46,22 +38,6 @@ class App(BaseModelMixin):
     @classmethod
     def get_by_name(cls, name):
         return cls.query.filter_by(name=name).first()
-
-    def grant_user(self, user):
-        from console.models.user import User
-
-        if self.users.filter(User.id == user.id).first() is None:
-            self.users.append(user)
-            db.session.add(self)
-            db.session.commit()
-
-    def revoke_user(self, user):
-        self.users.remove(user)
-        db.session.add(self)
-        db.session.commit()
-
-    def list_users(self):
-        return self.users.all()
 
     @property
     def latest_release(self):

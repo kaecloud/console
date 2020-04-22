@@ -6,7 +6,7 @@ from console.config import TASK_PUBSUB_CHANNEL, APP_BUILD_TIMEOUT
 from console.ext import rds, db
 from console.libs.utils import logger, save_job_log, BuildError, build_image_helper, make_errmsg
 from console.libs.k8s import KubeApi, ApiException
-from console.models import Release, Job
+from console.models import Release
 
 
 @current_app.task(bind=True, soft_time_limit=APP_BUILD_TIMEOUT)
@@ -20,59 +20,6 @@ def build_image(self, appname, git_tag):
     except SoftTimeLimitExceeded:
         logger.warn("build timeout.")
         self.stream_output(make_errmsg('build timeout, please test in local environment and contact administrator'))
-
-
-@current_app.task
-def handle_job_pod_event(jobname, obj):
-    job = Job.get_by_name(jobname)
-    if not job:
-        return
-    state = {}
-    job_update = {}
-    status = (None, None)
-    if 'containerStatuses' in obj['status']:
-        state = obj['status']['containerStatuses'][0]['state']
-        for k, v in state.items():
-            status = (k, v.get('reason', None))
-            status_str = '{}: {}'.format(*status)
-            continue
-        job_update['state'] = state
-    elif obj['status']['phase'] == 'Pending':
-        job.update_status("Pending")
-        return
-    else:
-        status_str = '{}: {}'.format(obj['status']['phase'], obj['status']['reason'])
-
-    pod_name = obj['metadata']['name']
-
-    # update status
-    if status == ('terminated', 'Completed'):
-        job_update['status'] = 'Completed'
-    elif status == ('running', None):
-        job_update['status'] = 'Running'
-    else:
-        job_update['status'] = status_str
-
-    job.update_status(job_update['status'])
-
-    # When a job is successful finished, save log
-    if status[0] == 'terminated':
-        save_pod_log(jobname, pod_name, job.version)
-
-
-@current_app.task
-def save_pod_log(jobname, podname, version=0):
-    try:
-        resp = KubeApi.instance().get_pod_log(podname=podname)
-    except ApiException as e:
-        if e.status == 404:
-            return
-        else:
-            raise e
-    try:
-        save_job_log(job_name=jobname, resp=resp, version=version)
-    except:
-        logger.exception("Error when get pod log")
 
 
 def celery_task_stream_response(celery_task_ids, timeout=0, exit_when_timeout=True):

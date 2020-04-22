@@ -53,13 +53,6 @@ SQLALCHEMY_MAX_OVERFLOW = getenv('SQLALCHEMY_MAX_OVERFLOW', default=10)
 # you should set SQLALCHEMY_POOL_RECYCLE to a value smaller than wait_timeout config in mysql
 SQLALCHEMY_POOL_RECYCLE = getenv('SQLALCHEMY_POOL_RECYCLE', default=580)
 
-OAUTH_APP_NAME = 'gitlab'
-# I registered a test app on gitlab that redirect to
-# http://console.gtapp.xyz/user/authorized as callback url
-GITLAB_CLIENT_ID = getenv('GITLAB_CLIENT_ID')
-GITLAB_CLIENT_SECRET = getenv('GITLAB_CLIENT_SECRET')
-GITLAB_HOST = getenv('GITLAB_HOST', default='gitlab.com')
-
 #############################################################
 # SSO related config
 #############################################################
@@ -67,6 +60,8 @@ SSO_CLIENT_ID = ""
 SSO_CLIENT_SECRET = ""
 SSO_REALM = ""
 SSO_HOST = ""
+KEYCLOAK_ADMIN_USER = ""
+KEYCLOAK_ADMIN_PASSWD = ""
 
 EMAIL_DOMAIN = getenv('EMAIL_DOMAIN')
 BOT_WEBHOOK_URL = getenv('BOT_WEBHOOK_URL')
