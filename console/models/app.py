@@ -66,8 +66,6 @@ class App(BaseModelMixin):
         the caller must ensure the all kubernetes objects have been deleted
         :return:
         """
-        appname = self.name
-
         # delete all releases
         Release.query.filter_by(app_id=self.id).delete()
         SpecVersion.query.filter_by(app_id=self.id).delete()

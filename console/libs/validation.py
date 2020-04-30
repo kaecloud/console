@@ -8,7 +8,7 @@ from numbers import Number
 from console.libs.k8s import KubeApi
 
 from kaelib.spec import (
-    StrictSchema, validate_cpu, validate_memory, validate_appname
+    StrictSchema, validate_cpu, validate_memory, validate_appname,
     validate_app_type, validate_tag,
 )
 
@@ -301,6 +301,22 @@ class PodEntryArgsSchema(StrictSchema):
     cluster = fields.Str(required=True)
     namespace = fields.Str(required=True)
     container = fields.Str()
+
+
+class CreateRoleArgsSchema(StrictSchema):
+    name = fields.Str(required=True)
+    actions = fields.List(fields.Str(), required=True)
+
+    apps = fields.List(fields.Str())
+    clusters = fields.List(fields.Str(), missing=[])
+    users = fields.List(fields.Str())
+    groups = fields.List(fields.Str())
+
+
+class CreateRoleBindingArgsSchema(StrictSchema):
+    role_name = fields.Str(required=True)
+    users = fields.List(fields.Str())
+    groups = fields.List(fields.Str())
 
 
 cluster_args_schema = ClusterArgSchema()

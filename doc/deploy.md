@@ -3,34 +3,30 @@ create two namespace `kae-app` and `kae-job`, you should add certifications to `
 
 ## prepare config.py
 
-    GITLAB_CLIENT_ID = "gitlab app client id"
-    GITLAB_CLIENT_SECRET = "gitlab app secret"
-
-    GITLAB_HOST = 'gitlab.com'
-
-
     SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://kae:123qwe@127.0.0.1:3306/kae_console?charset=utf8mb4'
     REDIS_URL = 'redis://kae-redis:6379/0'
-
-    CLUSTER_BASE_DOMAIN_MAP = {
-        "cluster1": "cluster1.kae.com",
-    }
-
-    TLS_SECRET_MAP = {
+    
+    CLUSTER_CFG = {
         "cluster1": {
-            "domain1.com": "domain1-com-tls",
-            "domain2.com": "domain2-com-tls",
+            "k8s": "k8s name",
+            "namespace": "",
+            # optional, cluster's dfs root directory
+            "dfs_host_dir": "/dfs-root-path-in-host",
+            # Set base domain for cluster, when a cluster has base domain,
+            # every app in that cluster will a host name `appname.basedomain`
+            # if you use incluster config, then the cluster name should be `incluster`.
+            "base_domain": "cluster1.kae.com",
+            "tls_secrets": {
+                "domain1.com": "domain1-com-tls",
+                "domain2.com": "domain2-com-tls",
+            }
         },
         "cluster2": {
-            "domain1.com": "domain1-com-tls",
-            "domain2.com": "domain2-com-tls",
-        },
+            "k8s": "k8s name",
+            "namespace": "",
+        }
     }
-
-    DFS_HOST_DIR_MAP = {
-        "cluster-name": "/dfs-root-path-in-host",
-    }
-
+    
     EMAIL_DOMAIN = 'email.com'
     EMAIL_SENDER = "notifications@email.com"
     EMAIL_SENDER_PASSWOORD = "password"

@@ -4,7 +4,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 
 from console.config import TASK_PUBSUB_CHANNEL, APP_BUILD_TIMEOUT
 from console.ext import rds, db
-from console.libs.utils import logger, save_job_log, BuildError, build_image_helper, make_errmsg
+from console.libs.utils import logger, BuildError, build_image_helper, make_errmsg
 from console.libs.k8s import KubeApi, ApiException
 from console.models import Release
 

@@ -22,9 +22,9 @@ from flask import session
 from functools import wraps
 
 from console.config import (
-    BOT_WEBHOOK_URL, LOGGER_NAME, DEBUG, DEFAULT_REGISTRY, JOBS_LOG_ROOT_DIR,
-    REPO_DATA_DIR, TLS_SECRET_MAP, EMAIL_SENDER, EMAIL_SENDER_PASSWOORD,
-    DFS_HOST_DIR_MAP,
+    BOT_WEBHOOK_URL, LOGGER_NAME, DEBUG, DEFAULT_REGISTRY,
+    REPO_DATA_DIR, EMAIL_SENDER, EMAIL_SENDER_PASSWOORD,
+    CLUSTER_CFG,
 )
 from console.libs.jsonutils import VersatileEncoder
 
@@ -217,8 +217,17 @@ def make_app_redis_key(appname):
     return "app-{}-data".format(appname)
 
 
+def get_cluster_names():
+    return list(CLUSTER_CFG.keys())
+
+
+def cluster_exists(name):
+    return name in CLUSTER_CFG
+
+
 def search_tls_secret(cluster, hostname):
-    cluster_secret_map = TLS_SECRET_MAP.get(cluster, None)
+    cluster_info = CLUSTER_CFG[cluster]
+    cluster_secret_map = cluster_info.get("tls_secrets", None)
     if cluster_secret_map is None:
         return None
 
@@ -233,29 +242,10 @@ def search_tls_secret(cluster, hostname):
 
 
 def get_dfs_host_dir(cluster):
-    return DFS_HOST_DIR_MAP.get(cluster, None)
-
-
-def get_job_log_versions(job_name):
-    log_dir = os.path.join(JOBS_LOG_ROOT_DIR, job_name)
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    versions = []
-    for filename in os.listdir(log_dir):
-        group = re.match(r'log\.(?P<id>\d+)\.txt', filename)
-        if group:
-            versions.append(int(group.group('id')))
-    return sorted(versions)
-
-
-def save_job_log(job_name, resp, version):
-    log_dir = os.path.join(JOBS_LOG_ROOT_DIR, job_name)
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    log_path = os.path.join(log_dir, 'log.{}.txt'.format(version))
-
-    with open(log_path, 'w') as f:
-        f.write(resp)
+    cluster_info = CLUSTER_CFG.get(cluster, None)
+    if cluster_info is None:
+        return None
+    return cluster_info.get("dfs_host_dir", None)
 
 
 def make_app_watcher_channel_name(cluster, appname):

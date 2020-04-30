@@ -11,7 +11,6 @@ from flask import jsonify, g, Flask, request
 # from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_admin import Admin
-from flask_oidc import OpenIDConnect
 from flasgger import Swagger
 
 from werkzeug.utils import import_string
@@ -41,10 +40,9 @@ logging.basicConfig(level=loglevel,
 
 api_blueprints = [
     'app',
-    'job',
-    'user',
     'home',
     'cluster',
+    'rbac',
 ]
 
 swagger_yaml_template = """
@@ -195,13 +193,14 @@ def init_oidc(oidc, app):
     }
     # create a temporary file for client secret json
     client_secret_fobj = tempfile.NamedTemporaryFile()
-    json.dump(client_secret_json, client_secret_fobj) 
+    # json.dump(client_secret_json, client_secret_fobj)
+    client_secret_fobj.write(json.dumps(client_secret_json).encode("utf8"))
     client_secret_fobj.flush()
 
     app.config.update({
-        'SECRET_KEY': 'SomethingNotEntirelySecret',
-        'TESTING': True,
-        'DEBUG': True,
+        # 'SECRET_KEY': 'SomethingNotEntirelySecret',
+        'TESTING': DEBUG,
+        'DEBUG': DEBUG,
         'OIDC_CLIENT_SECRETS': client_secret_fobj.name,
         'OIDC_ID_TOKEN_COOKIE_SECURE': False,
         'OIDC_REQUIRE_VERIFIED_EMAIL': False,
@@ -280,7 +279,7 @@ def create_app():
     init_admin(admin)
 
     from console.libs.view import user_require
-    swagger = Swagger(app, decorators=[user_require(False), ], template=yaml.load(swagger_yaml_template, Loader=yaml.FullLoader))
+    swagger = Swagger(app, decorators=[user_require(True), ], template=yaml.load(swagger_yaml_template, Loader=yaml.FullLoader))
 
     if not DEBUG:
         sentry = Sentry(dsn=SENTRY_DSN)
@@ -303,7 +302,7 @@ def create_app():
         # TODO: remove the code
         response.headers['Access-Control-Allow-Origin'] = 'http://localhost:3000'
         response.headers['Access-Control-Allow-Credentials'] = 'true'
-        response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Content-Type, Accept, Connection, User-Agent, Cookie'
+        response.headers['Access-Control-Allow-Headers'] = 'Origin, X-Requested-With, Access-Control-Allow-Headers, Authorization, Content-Type, Accept, Connection, User-Agent, Cookie'
         response.headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
         return response
 

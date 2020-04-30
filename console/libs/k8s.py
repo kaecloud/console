@@ -1,8 +1,6 @@
 import os
 import time
 import yaml
-import logging
-import json
 import base64
 import copy
 from addict import Dict
@@ -13,9 +11,8 @@ from kubernetes.stream import stream
 from kubernetes.client.rest import ApiException
 
 from console.config import (
-    HOST_VOLUMES_DIR, POD_LOG_DIR, CLUSTER_BASE_DOMAIN_MAP,
-    REGISTRY_AUTHS, DFS_VOLUME, DFS_MOUNT_DIR, JOBS_ROOT_DIR, JOBS_OUPUT_ROOT_DIR,
-    INGRESS_ANNOTATIONS_PREFIX,
+    HOST_VOLUMES_DIR, POD_LOG_DIR,
+    REGISTRY_AUTHS, INGRESS_ANNOTATIONS_PREFIX, CLUSTER_CFG,
 )
 
 from .utils import (
@@ -31,13 +28,23 @@ class KubeError(Exception):
         return self.msg
 
 
+class K8sCluster(object):
+    def __init__(self, name, core_v1api, extensions_api, batch_api, scale_api):
+        self.name = name
+        self.core_v1api = core_v1api
+        self.extensions_api = extensions_api
+        self.batch_api = batch_api
+        self.scale_api = scale_api
+
+
 class KubeApi(object):
     _INSTANCE = None
     ALL_CLUSTER = "__all_cluster__"
     DEFAULT_CLUSTER = "__default_cluster__"
 
     def __init__(self):
-        self.cluster_map = {}
+        self.k8s_map = {}
+        self.kae_cluster_map = {}
         self.default_cluster_name = None
         self._load_multiple_clients()
 
@@ -49,12 +56,13 @@ class KubeApi(object):
 
     @property
     def cluster_names(self):
-        return list(self.cluster_map.keys())
+        return list(CLUSTER_CFG.keys())
 
     def cluster_exist(self, cluster_name):
-        return cluster_name in self.cluster_map
+        return cluster_name in CLUSTER_CFG
 
     def _load_multiple_clients(self):
+        # get k8s clusters
         if os.path.exists(os.path.expanduser("~/.kube/config")):
             contexts, active_context = config.list_kube_config_contexts()
             if not contexts:
@@ -71,38 +79,51 @@ class KubeApi(object):
                     api_client=config.new_client_from_config(context=ctx))
                 scale_api = client.AutoscalingV2beta2Api(
                     api_client=config.new_client_from_config(context=ctx))
-                self.cluster_map[ctx] = ClientApiBundle(ctx, core_v1api, extensions_api, batch_api, scale_api)
+                self.k8s_map[ctx] = K8sCluster(ctx, core_v1api, extensions_api, batch_api, scale_api)
         else:
             config.load_incluster_config()
             core_v1api = client.CoreV1Api()
             extensions_api = client.ExtensionsV1beta1Api()
             batch_api = client.BatchV1Api()
             scale_api = client.AutoscalingV1Api()
-            self.cluster_map['incluster'] = ClientApiBundle('incluster', core_v1api, extensions_api, batch_api, scale_api)
+            self.k8s_map['incluster'] = K8sCluster('incluster', core_v1api, extensions_api, batch_api, scale_api)
             self.default_cluster_name = "incluster"
+
+        # get kae clusters
+        for name, cluster_info in CLUSTER_CFG.items():
+            try:
+                k8s_name = cluster_info["k8s"]
+                k8s_cluster = self.k8s_map[k8s_name]
+                self.kae_cluster_map[name] = KaeCluster(name, k8s_cluster.core_v1api, k8s_cluster.extensions_api, k8s_cluster.batch_api, k8s_cluster.scale_api)
+            except KeyError:
+                raise KubeError(f"kae cluster {name} does not contain correct k8s")
 
     def __getattr__(self, item):
         def wrapper(*args, **kwargs):
+            def _handle_single_cluster(name, cluster_info):
+                k8s_ns = cluster_info['namespace']
+                kae_cluster = self.kae_cluster_map.get(name)
+                func = getattr(kae_cluster, item)
+                kwargs['namespace'] = k8s_ns
+                return func(*args, **kwargs)
+
             cluster_name = kwargs.pop('cluster_name', self.default_cluster_name)
             if cluster_name == self.ALL_CLUSTER:
                 results = {}
-                for name, cluster in self.cluster_map.items():
-                    func = getattr(cluster, item)
-                    results[name] = func(*args, **kwargs)
+                for name, cluster_info in CLUSTER_CFG.items():
+                    results[name] = _handle_single_cluster(name, cluster_info)
                 return results
 
             if cluster_name == self.DEFAULT_CLUSTER:
                 cluster_name = self.default_cluster_name
-            cluster = self.cluster_map.get(cluster_name, None)
-            if cluster is None:
+            cluster_info = CLUSTER_CFG.get(cluster_name, None)
+            if cluster_info is None:
                 raise Exception("cluster {} is not available".format(cluster_name))
-            func = getattr(cluster, item)
-
-            return func(*args, **kwargs)
+            return _handle_single_cluster(cluster_name, cluster_info)
         return wrapper
 
 
-class ClientApiBundle(object):
+class KaeCluster(object):
     def __init__(self, name, core_v1api, extensions_api, batch_api, scale_api):
         self.name = name
         self.cluster = name
@@ -110,23 +131,6 @@ class ClientApiBundle(object):
         self.extensions_api = extensions_api
         self.batch_api = batch_api
         self.scale_api = scale_api
-
-    def create_job(self, spec, namespace='default'):
-        body = self._create_job_dict(spec)
-        self.batch_api.create_namespaced_job(body=body, namespace=namespace)
-
-    def delete_job(self, jobname, namespace='default', ignore_404=False):
-        try:
-            self.batch_api.delete_namespaced_job(
-                name=jobname, namespace=namespace,
-                body=client.V1DeleteOptions(propagation_policy="Foreground",
-                                            grace_period_seconds=5))
-        except ApiException as e:
-            if not (e.status == 404 and ignore_404 is True):
-                raise e
-
-    def get_job(self, jobname, namespace='default'):
-        return self.batch_api.read_namespaced_job(jobname, namespace=namespace)
 
     def get_pods(self, label_selector, namespace='default'):
         return self.core_v1api.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
@@ -141,10 +145,6 @@ class ClientApiBundle(object):
         resp = self.core_v1api.read_namespaced_pod_log(name=podname, namespace=namespace, **kwargs)
         for line in iter_resp_lines(resp):
             yield line
-
-    def get_job_pods(self, jobname, namespace='default'):
-        label_selector = "kae-job-name={}".format(jobname)
-        return self.core_v1api.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
 
     def get_app_pods(self, name, namespace="default"):
         label_selector = "kae-app-name={}".format(name)
@@ -902,7 +902,7 @@ class ClientApiBundle(object):
                 }
                 tls_list.append(ingress_tls)
 
-        cluster_domain = CLUSTER_BASE_DOMAIN_MAP.get(cluster, None)
+        cluster_domain = CLUSTER_CFG[cluster].get("base_domain", None)
         if cluster_domain is not None:
             default_domain = appname + '.' + cluster_domain
             if default_domain not in mp_cfg:
@@ -943,82 +943,4 @@ class ClientApiBundle(object):
             obj.spec.rules.append(rule)
         obj.spec.tls = tls_list
         return obj
-
-    def _create_job_dict(self, spec):
-        jobname = spec.jobname
-        job_dir = os.path.join(JOBS_ROOT_DIR, jobname)
-        if not os.path.exists(job_dir):
-            os.makedirs(job_dir)
-        output_dir = os.path.join(JOBS_OUPUT_ROOT_DIR, jobname)
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        work_dir = os.path.join(job_dir, 'code')
-
-        initial_env = [
-            {
-                'name': 'JOB_NAME',
-                'value': jobname
-            },
-            {
-                'name': 'OUTPUT_DIR',
-                'value': output_dir
-            },
-            {
-                'name': 'WORK_DIR',
-                'value': os.path.join(job_dir, 'code')
-            },
-            {
-                'name': 'LC_ALL',
-                'value': 'en_US.UTF-8'
-            },
-            {
-                'name': 'LC_CTYPE',
-                'value': 'en_US.UTF-8'
-            },
-        ]
-        # when the .spec.template.spec.restartPolicy field is set to “OnFailure”, the back-off limit may be ineffective
-        # see https://github.com/kubernetes/kubernetes/issues/54870
-        restartPolicy = 'OnFailure' if spec.autoRestart else 'Never'
-
-        pod_spec = self._construct_pod_spec(jobname, job_dir, spec.containers, restartPolicy=restartPolicy,
-                                            initial_env=initial_env, default_work_dir=work_dir)
-        # add more config for job
-        pod_spec.volumes.append(DFS_VOLUME)
-        for c in pod_spec.containers:
-            c.volumeMounts.append({
-                'name': 'cephfs',
-                'mountPath': DFS_MOUNT_DIR,
-            })
-
-        obj = Dict({
-            'apiVersion': 'batch/v1',
-            'kind': 'Job',
-            'metadata': {
-                # Unique key of the Job instance
-                'name': spec.jobname,
-                'labels': {
-                    'kae': 'true',
-                    'kae-type': 'job',
-                    'kae-job-name': spec.jobname,
-                },
-            },
-            'spec': {
-                # FIXME: a workaround to forbid job controller to create too many pods
-                #        see https://github.com/kubernetes/kubernetes/issues/62382
-                # 'activeDeadlineSeconds': 30,
-                'template': {
-                    'metadata': {
-                        'name': '{}-job'.format(spec.jobname),
-                        'labels': {
-                            'kae': 'true',
-                            'kae-type': 'job',
-                            'kae-job-name': spec.jobname,
-                        },
-                    },
-                    'spec': pod_spec,
-                },
-            }
-        })
-        return obj
-
 

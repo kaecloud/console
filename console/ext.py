@@ -23,25 +23,6 @@ db = SQLAlchemy()
 sockets = Sockets()
 mako = MakoTemplates()
 rds = StrictRedis.from_url(REDIS_URL)
-
-
-def fetch_token(name):
-    token_session_key = '{}-token'.format(name.lower())
-    return session.get(token_session_key, {})
-
-
-def update_token(name, token):
-    token_session_key = '{}-token'.format(name.lower())
-    session[token_session_key] = token
-    return token
-
-
-def delete_token(name="sso"):
-    token_session_key = '{}-token'.format(name.lower())
-    session.pop(token_session_key, None)
-
-
 cache = Cache(config={'CACHE_TYPE': 'redis'})
 sess = Session()
-sso = SSO(SSO_HOST, KEYCLOAK_ADMIN_USER, KEYCLOAK_ADMIN_PASSWD)
 oidc = OpenIDConnect()

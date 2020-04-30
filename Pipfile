@@ -14,6 +14,7 @@ pylint = "*"
 
 [packages]
 flask = "*"
+flask-oidc = "*"
 flask-sqlalchemy = "*"
 flask-session = "*"
 flask-caching = "*"
@@ -47,6 +48,7 @@ celery = "*"
 marshmallow = "*"
 flasgger = "*"
 kaelib = "*"
+python-keycloak = "*"
 
 [requires]
 python_version = "3.6"

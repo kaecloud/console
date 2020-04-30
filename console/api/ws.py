@@ -3,7 +3,7 @@ import json
 import html
 from functools import wraps
 import contextlib
-from flask import g, current_app, request, url_for
+from flask import g, current_app
 from json.decoder import JSONDecodeError
 from marshmallow import ValidationError
 import gevent
@@ -11,7 +11,6 @@ from geventwebsocket.exceptions import WebSocketError
 from urllib3.exceptions import ProtocolError
 import redis_lock
 
-from console.api.util import check_rbac
 from console.libs.utils import (
     logger, make_app_watcher_channel_name, make_msg, make_errmsg, send_email, bearychat_sendmsg,
     make_app_redis_key,
@@ -22,11 +21,11 @@ from console.libs.validation import (
     build_args_schema, cluster_canary_schema, pod_entry_schema
 )
 from console.libs.view import create_api_blueprint
-from console.models import App, User, get_current_user
+from console.models import App, User, RBACAction, get_current_user, check_rbac
 from console.tasks import celery_task_stream_response, build_image
 from console.ext import rds, db
 from console.config import (
-    DEFAULT_APP_NS, DEFAULT_JOB_NS, WS_HEARTBEAT_TIMEOUT, FAKE_USER,
+    WS_HEARTBEAT_TIMEOUT, FAKE_USER,
     BEARYCHAT_CHANNEL, APP_BUILD_TIMEOUT,
 )
 
@@ -95,21 +94,20 @@ def get_app_pods_events(socket, appname):
     canary = args['canary']
     name = "{}-canary".format(appname) if canary else appname
     channel = make_app_watcher_channel_name(cluster, name)
-    ns = DEFAULT_APP_NS
 
     app = App.get_by_name(appname)
     if not app:
         socket.send(make_errmsg('app {} not found'.format(appname), jsonize=True))
         return
 
-    if not check_rbac(app, ["get", ]):
+    if not check_rbac(app, [RBACAction.GET, ]):
         socket.send(make_errmsg('You\'re not granted to this app, ask administrators for permission', jsonize=True))
         return
 
     # since this request may pend long time, so we remove the db session
     # otherwise we may get error like `sqlalchemy.exc.TimeoutError: QueuePool limit of size 50 overflow 10 reached, connection timed out`
     with session_removed():
-        pod_list = KubeApi.instance().get_app_pods(name, cluster_name=cluster, namespace=ns)
+        pod_list = KubeApi.instance().get_app_pods(name, cluster_name=cluster)
         pods = pod_list.to_dict()
         for item in pods['items']:
             data = {
@@ -272,7 +270,7 @@ def build_app(socket, appname):
         socket.send(make_errmsg('app {} not found'.format(appname), jsonize=True))
         return
 
-    if not check_rbac(app, ["build", ]):
+    if not check_rbac(app, [RBACAction.BUILD, ]):
         socket.send(make_errmsg('You\'re not granted to this app, ask administrators for permission', jsonize=True))
         return
     release = app.get_release_by_tag(tag)
@@ -404,7 +402,7 @@ def enter_pod(socket, appname):
         socket.send(make_errmsg('app {} not found'.format(appname), jsonize=True))
         return
 
-    if not check_rbac(app, ["enterContainer", ]):
+    if not check_rbac(app, [RBACAction.ENTER_CONTAINER, ]):
         socket.send(make_errmsg('You\'re not granted to this app, ask administrators for permission', jsonize=True))
         return
 

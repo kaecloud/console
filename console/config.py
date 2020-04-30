@@ -14,7 +14,6 @@ FAKE_USER = {
     'username': 'sheldon',
     'nickname': 'Sheldon Lee Cooper',
     'email': 'sheldon@sheldon.com',
-    'privileged': 1,
 }
 
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -42,9 +41,25 @@ SECRET_KEY = getenv('SECRET_KEY', default='testsecretkey')
 
 REDIS_URL = getenv('REDIS_URL', default='redis://127.0.0.1:6379/0')
 
-DEFAULT_NS = getenv('DEFAULT_NS', default='kae')
-DEFAULT_APP_NS = getenv('DEFAULT_APP_NS', default='kae-app')
-DEFAULT_JOB_NS = getenv('DEFAULT_JOB_NS', default='kae-job')
+CLUSTER_CFG = {
+    # "cluster1": {
+    #     "k8s": "k8s name",
+    #     "namespace": "",
+    #     # optional, cluster's dfs root directory
+    #     "dfs_host_dir": "",
+    #     # Set base domain for cluster, when a cluster has base domain,
+    #     # every app in that cluster will a host name `appname.basedomain`
+    #     # if you use incluster config, then the cluster name should be `incluster`.
+    #     "base_domain": "xxx",
+    #     "tls_secrets": {
+    #         "domain name": "tls secret name"
+    #     }
+    # },
+    # "cluster2": {
+    #     "k8s": "k8s name",
+    #     "namespace": "",
+    # }
+}
 
 SQLALCHEMY_DATABASE_URI = getenv('SQLALCHEMY_DATABASE_URI', default="mysql+pymysql://root@127.0.0.1:3306/kaetest?charset=utf8mb4")
 SQLALCHEMY_TRACK_MODIFICATIONS = getenv('SQLALCHEMY_TRACK_MODIFICATIONS', default=True, type=bool)
@@ -73,53 +88,8 @@ REGISTRY_AUTHS = {
 
 PROTECTED_CLUSTER = ['aliyun']
 
-# Set base domain for cluster, when a cluster has base domain,
-# every app in that cluster will a host name `appname.basedomain`
-# if you use incluster config, then the cluster name should be `incluster`.
-CLUSTER_BASE_DOMAIN_MAP = {
-    # "cluster1": "domain name",
-    # "cluster2": "domain name",
-}
-
-TLS_SECRET_MAP = {
-    # "cluster1": {
-    #     "domain name": "tls secret name"
-    # }
-}
-
-# cluster's dfs root directory
-DFS_HOST_DIR_MAP = {
-    # "cluster1": "/dfs"
-}
-
 HOST_DATA_DIR = "/data/kae"
 POD_LOG_DIR = "/kae/logs"
-
-DFS_MOUNT_DIR = '/cephfs'
-JOBS_ROOT_DIR = os.path.join(DFS_MOUNT_DIR, "kae/jobs")
-JOBS_OUPUT_ROOT_DIR = os.path.join(DFS_MOUNT_DIR, "kae/job-outputs")
-JOBS_REPO_DATA_DIR = os.path.join(DFS_MOUNT_DIR, "kae/job-repos")
-JOBS_LOG_ROOT_DIR = os.path.join(DFS_MOUNT_DIR, "kae/job-logs")
-
-DFS_TYPE = os.environ.get('DFS_TYPE', 'hostPath')
-DFS_VOLUME = {}
-
-if DFS_TYPE == 'hostPath':
-    DFS_VOLUME = {
-        'name': 'cephfs',
-        'hostPath': {
-            'path': os.environ.get('KAE_DFS_HOSTPATH', '/cephfs')
-        }
-    }
-elif DFS_TYPE == 'nfs':
-    DFS_VOLUME = {
-        'name': 'cephfs',
-        'nfs': {
-            'server': os.environ.get('KAE_NFS_SERVER'),
-            'path': os.environ.get('KAE_NFS_PATH', '/'),
-            'readOnly': False,
-        }
-    }
 
 for console_cfg in CONSOLE_CONFIG_PATHS:
     if os.path.isfile(console_cfg):
@@ -131,12 +101,17 @@ if SQLALCHEMY_DATABASE_URI is None:
 if REDIS_URL is None:
     raise ValueError("REDIS_URL can't be None")
 
-# validate CLUSTER_BASE_DOMAIN_MAP
-for cluster, base_domain in CLUSTER_BASE_DOMAIN_MAP.items():
-    if cluster not in TLS_SECRET_MAP:
-        raise ValueError("cluster {} base domain {} needs tls secret".format(cluster, base_domain))
-    if base_domain not in TLS_SECRET_MAP[cluster]:
-        raise ValueError("cluster {} base domain {} needs tls secret".format(cluster, base_domain))
+# validate CLUSTER_CFG
+for cluster_name, cluster_info in CLUSTER_CFG.items():
+    if "k8s" not in cluster_info:
+        raise ValueError("Every cluster in CLUSTER_CFG needs k8s")
+    if "namespace" not in cluster_info:
+        raise ValueError("Every cluster in CLUSTER_CFG needs namespace")
+    # check if cluster's base domain has tls secret
+    base_domain = cluster_info.get("base_domain", None)
+    tls_secrets = cluster_info.get("tls_secrets", {})
+    if base_domain is not None and base_domain not in tls_secrets:
+        raise ValueError("cluster {} base domain {} needs tls secret".format(cluster_name, base_domain))
 
 ##################################################
 # the config below must not use getenv
