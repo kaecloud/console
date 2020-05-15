@@ -28,24 +28,13 @@ class KubeError(Exception):
         return self.msg
 
 
-class K8sCluster(object):
-    def __init__(self, name, core_v1api, extensions_api, batch_api, scale_api):
-        self.name = name
-        self.core_v1api = core_v1api
-        self.extensions_api = extensions_api
-        self.batch_api = batch_api
-        self.scale_api = scale_api
-
-
 class KubeApi(object):
     _INSTANCE = None
     ALL_CLUSTER = "__all_cluster__"
-    DEFAULT_CLUSTER = "__default_cluster__"
 
     def __init__(self):
-        self.k8s_map = {}
+        self.k8s_api_map = {}
         self.kae_cluster_map = {}
-        self.default_cluster_name = None
         self._load_multiple_clients()
 
     @classmethod
@@ -67,96 +56,112 @@ class KubeApi(object):
             contexts, active_context = config.list_kube_config_contexts()
             if not contexts:
                 raise Exception("no context in kubeconfig")
-            self.default_cluster_name = active_context['name']
 
             contexts = [context['name'] for context in contexts]
             for ctx in contexts:
-                core_v1api = client.CoreV1Api(
+                api_map = {}
+                api_map['core_v1_api'] = client.CoreV1Api(
                     api_client=config.new_client_from_config(context=ctx))
-                extensions_api = client.ExtensionsV1beta1Api(
+                api_map['apps_v1_api'] = client.AppsV1Api(
                     api_client=config.new_client_from_config(context=ctx))
-                batch_api = client.BatchV1Api(
+                api_map['networking_v1beta1_api'] = client.NetworkingV1beta1Api(
                     api_client=config.new_client_from_config(context=ctx))
-                scale_api = client.AutoscalingV2beta2Api(
+                api_map['scale_v2beta2_api'] = client.AutoscalingV2beta2Api(
                     api_client=config.new_client_from_config(context=ctx))
-                self.k8s_map[ctx] = K8sCluster(ctx, core_v1api, extensions_api, batch_api, scale_api)
+                self.k8s_api_map[ctx] = api_map
         else:
             config.load_incluster_config()
-            core_v1api = client.CoreV1Api()
-            extensions_api = client.ExtensionsV1beta1Api()
-            batch_api = client.BatchV1Api()
-            scale_api = client.AutoscalingV1Api()
-            self.k8s_map['incluster'] = K8sCluster('incluster', core_v1api, extensions_api, batch_api, scale_api)
-            self.default_cluster_name = "incluster"
+            api_map = {
+                'core_v1_api': client.CoreV1Api(),
+                'apps_v1_api': client.AppsV1Api(),
+                'networking_v1beta1_api': client.NetworkingV1beta1Api(),
+                'scale_v2beta2_api': client.AutoscalingV2beta2Api(),
+            }
+            self.k8s_api_map['incluster'] = api_map
 
         # get kae clusters
         for name, cluster_info in CLUSTER_CFG.items():
             try:
                 k8s_name = cluster_info["k8s"]
-                k8s_cluster = self.k8s_map[k8s_name]
-                self.kae_cluster_map[name] = KaeCluster(name, k8s_cluster.core_v1api, k8s_cluster.extensions_api, k8s_cluster.batch_api, k8s_cluster.scale_api)
+                k8s_namespace = cluster_info["namespace"]
+                k8s_cluster = self.k8s_api_map[k8s_name]
+                self.kae_cluster_map[name] = KaeCluster(name, k8s_namespace, **k8s_cluster)
             except KeyError:
                 raise KubeError(f"kae cluster {name} does not contain correct k8s")
 
     def __getattr__(self, item):
         def wrapper(*args, **kwargs):
-            def _handle_single_cluster(name, cluster_info):
-                k8s_ns = cluster_info['namespace']
+            def _exec_on_single_cluster(name):
                 kae_cluster = self.kae_cluster_map.get(name)
                 func = getattr(kae_cluster, item)
-                kwargs['namespace'] = k8s_ns
                 return func(*args, **kwargs)
 
-            cluster_name = kwargs.pop('cluster_name', self.default_cluster_name)
+            try:
+                cluster_name = kwargs.pop('cluster_name')
+            except KeyError:
+                raise ValueError("cluster_name is needed")
+
             if cluster_name == self.ALL_CLUSTER:
                 results = {}
                 for name, cluster_info in CLUSTER_CFG.items():
-                    results[name] = _handle_single_cluster(name, cluster_info)
+                    results[name] = _exec_on_single_cluster(name)
                 return results
 
-            if cluster_name == self.DEFAULT_CLUSTER:
-                cluster_name = self.default_cluster_name
             cluster_info = CLUSTER_CFG.get(cluster_name, None)
             if cluster_info is None:
                 raise Exception("cluster {} is not available".format(cluster_name))
-            return _handle_single_cluster(cluster_name, cluster_info)
+            return _exec_on_single_cluster(cluster_name)
         return wrapper
 
 
 class KaeCluster(object):
-    def __init__(self, name, core_v1api, extensions_api, batch_api, scale_api):
+    def __init__(self, name, namespace, **api_map):
         self.name = name
         self.cluster = name
-        self.core_v1api = core_v1api
-        self.extensions_api = extensions_api
-        self.batch_api = batch_api
-        self.scale_api = scale_api
+        self.namespace = namespace
+        self.api_map = api_map
 
-    def get_pods(self, label_selector, namespace='default'):
-        return self.core_v1api.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
+    @property
+    def core_api(self):
+        return self.api_map["core_v1_api"]
 
-    def get_pod_log(self, podname, namespace='default', **kwargs):
+    @property
+    def apps_api(self):
+        return self.api_map["apps_v1_api"]
+
+    @property
+    def scale_api(self):
+        return self.api_map["scale_v2beta2_api"]
+
+    @property
+    def networking_api(self):
+        return self.api_map['networking_v1beta1_api']
+
+    def get_pods(self, label_selector):
+        return self.core_api.list_namespaced_pod(namespace=self.namespace, label_selector=label_selector)
+
+    def get_pod_log(self, podname, **kwargs):
         kwargs.pop('follow', False)
-        return self.core_v1api.read_namespaced_pod_log(name=podname, namespace=namespace, **kwargs)
+        return self.core_api.read_namespaced_pod_log(name=podname, namespace=self.namespace, **kwargs)
 
-    def follow_pod_log(self, podname, namespace='default', **kwargs):
+    def follow_pod_log(self, podname, **kwargs):
         kwargs['_preload_content'] = False
         kwargs['follow'] = True
-        resp = self.core_v1api.read_namespaced_pod_log(name=podname, namespace=namespace, **kwargs)
+        resp = self.core_api.read_namespaced_pod_log(name=podname, namespace=self.namespace, **kwargs)
         for line in iter_resp_lines(resp):
             yield line
 
-    def get_app_pods(self, name, namespace="default"):
+    def get_app_pods(self, name):
         label_selector = "kae-app-name={}".format(name)
-        return self.core_v1api.list_namespaced_pod(namespace=namespace, label_selector=label_selector)
+        return self.core_api.list_namespaced_pod(namespace=self.namespace, label_selector=label_selector)
 
     def watch_pods(self, label_selector=None, **kwargs):
         if label_selector is None:
             label_selector = "kae=true"
         w = watch.Watch()
-        return w.stream(self.core_v1api.list_pod_for_all_namespaces, label_selector=label_selector, **kwargs)
+        return w.stream(self.core_api.list_pod_for_all_namespaces, label_selector=label_selector, **kwargs)
 
-    def exec_shell(self, podname, namespace='default', container=None):
+    def exec_shell(self, podname, container=None):
         exec_command = ['/bin/sh']
         kwargs = {
             "command": exec_command,
@@ -168,10 +173,10 @@ class KaeCluster(object):
         }
         if container:
             kwargs['container'] = container
-        resp = stream(self.core_v1api.connect_get_namespaced_pod_exec, podname, namespace, **kwargs)
+        resp = stream(self.core_api.connect_get_namespaced_pod_exec, podname, self.namespace, **kwargs)
         return resp
 
-    def stop_container(self, podname, namespace='default', container=None):
+    def stop_container(self, podname, container=None):
         exec_command = ['/bin/kill', '1']
         kwargs = {
             "command": exec_command,
@@ -183,33 +188,66 @@ class KaeCluster(object):
         }
         if container:
             kwargs['container'] = container
-        resp = stream(self.core_v1api.connect_get_namespaced_pod_exec, podname, namespace, **kwargs)
+        resp = stream(self.core_api.connect_get_namespaced_pod_exec, podname, self.namespace, **kwargs)
         return resp
 
-    def create_hpa(self, appname, ref_kind, hpa_data, namespace="default"):
+    def create_hpa(self, appname, ref_kind, hpa_data):
         """
         Create horizontal pod autoscaler
         see: https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V2beta2HorizontalPodAutoscaler.md
         """
-        ref = client.V1CrossVersionObjectReference(api_version=None, kind=ref_kind, name=appname)
+        obj = Dict({
+            "apiVersion": "autoscaling/v2beta2",
+            "kind": "HorizontalPodAutoscaler",
+            "metadata": {
+                "name": appname,
+            },
+            "spec": {
+                "scaleTargetRef": {
+                    "apiVersion": "apps/v1",
+                    "kind": "Deployment",
+                    "name": appname,
+                },
+                "maxReplicas": hpa_data['maxReplicas'],
+                "minReplicas": hpa_data['minReplicas'],
+                "metrics": [],
+            }
+        })
+        metrics = []
+        for metric_spec in hpa_data['metrics']:
+            if 'averageUtilization' in metric_spec:
+                target = client.V2beta2MetricTarget(
+                    type='Utilization',
+                    average_utilization=metric_spec['averageUtilization'],
+                )
+            elif 'averageValue' in metric_spec:
+                target = client.V2beta2MetricTarget(
+                    type='AverageValue',
+                    average_value=metric_spec['averageValue'],
+                )
+            else:
+                target = client.V2beta2MetricTarget(
+                    type='Value',
+                    average_utilization=metric_spec['value'],
+                )
 
-        hpa = client.V2beta2HorizontalPodAutoscaler()
-        hpa.metadata = client.V1ObjectMeta(name=appname)
-        # TODO
-        metric = client.V2beta2MetricSpec()
+            resource = client.V2beta2ResourceMetricSource(
+                name=metric_spec['name'],
+                target=target,
+            )
+            metric = client.V2beta2MetricSpec(
+                type="Resource",
+                resource=resource,
+            )
+            metrics.append(metric)
+        obj["spec"]["metrics"] = metrics
 
-        hpa.spec = client.V2beta2HorizontalPodAutoscalerSpec(
-            max_replicas= 1,
-            min_replicas=1,
-            scale_target_ref=ref,
-            metrics=[metric, ],
-        )
-        self.scale_api.create_namespaced_horizontal_pod_autoscaler(name=appname, namespace=namespace, body=hpa)
+        self.scale_api.create_namespaced_horizontal_pod_autoscaler(name=appname, namespace=self.namespace, body=obj)
 
-    def delete_hpa(self, appname, namespace="default"):
-        self.scale_api.delete_namespaced_horizontal_pod_autoscaler(name=appname, namespace=namespace)
+    def delete_hpa(self, appname):
+        self.scale_api.delete_namespaced_horizontal_pod_autoscaler(name=appname, namespace=self.namespace)
 
-    def create_or_update_config_map(self, appname, cm_data, replace=True, namespace="default"):
+    def create_or_update_config_map(self, appname, cm_data, replace=True):
         """
         create or update configmap for specfied app
         :param appname:
@@ -219,29 +257,29 @@ class KaeCluster(object):
         :return:
         """
         try:
-            cmap = self.core_v1api.read_namespaced_config_map(name=appname, namespace=namespace)
+            cmap = self.core_api.read_namespaced_config_map(name=appname, namespace=self.namespace)
             if replace:
                 cmap.data = cm_data
             else:
                 cmap.data.update(cm_data)
-            self.core_v1api.replace_namespaced_config_map(name=appname, namespace=namespace, body=cmap)
+            self.core_api.replace_namespaced_config_map(name=appname, namespace=self.namespace, body=cmap)
         except ApiException as e:
             if e.status == 404:
                 cmap = client.V1ConfigMap()
                 cmap.metadata = client.V1ObjectMeta(name=appname)
                 cmap.data = cm_data
-                self.core_v1api.create_namespaced_config_map(namespace=namespace, body=cmap)
+                self.core_api.create_namespaced_config_map(namespace=self.namespace, body=cmap)
             else:
                 raise e
 
-    def get_config_map(self, appname, namespace="default"):
-        result = self.core_v1api.read_namespaced_config_map(name=appname, namespace=namespace)
+    def get_config_map(self, appname):
+        result = self.core_api.read_namespaced_config_map(name=appname, namespace=self.namespace)
         return result.data
 
-    def delete_config_map(self, appname, namespace="default"):
-        self.core_v1api.delete_namespaced_config_map(name=appname, namespace=namespace, body=client.V1DeleteOptions())
+    def delete_config_map(self, appname):
+        self.core_api.delete_namespaced_config_map(name=appname, namespace=self.namespace, body=client.V1DeleteOptions())
 
-    def create_or_update_secret(self, appname, secrets, replace=True, namespace="default"):
+    def create_or_update_secret(self, appname, secrets, replace=True):
         """
         create or update secret for specified app
         :param appname:
@@ -259,24 +297,24 @@ class KaeCluster(object):
                 raise ValueError("secret value should be string or dict")
             base64_secrets[k] = base64.b64encode(b).decode('utf8')
         try:
-            sec = self.core_v1api.read_namespaced_secret(name=appname, namespace=namespace)
+            sec = self.core_api.read_namespaced_secret(name=appname, namespace=self.namespace)
             if replace:
                 sec.data = base64_secrets
             else:
                 sec.data.update(base64_secrets)
-            self.core_v1api.replace_namespaced_secret(name=appname, namespace=namespace, body=sec)
+            self.core_api.replace_namespaced_secret(name=appname, namespace=self.namespace, body=sec)
         except ApiException as e:
             if e.status == 404:
                 sec = client.V1Secret()
                 sec.metadata = client.V1ObjectMeta(name=appname)
                 sec.type = "Opaque"
                 sec.data = base64_secrets
-                self.core_v1api.create_namespaced_secret(namespace=namespace, body=sec)
+                self.core_api.create_namespaced_secret(namespace=self.namespace, body=sec)
             else:
                 raise e
 
-    def get_secret(self, appname, namespace="default"):
-        result = self.core_v1api.read_namespaced_secret(name=appname, namespace=namespace)
+    def get_secret(self, appname):
+        result = self.core_api.read_namespaced_secret(name=appname, namespace=self.namespace)
         secrets = {}
         if not result.data:
             return secrets
@@ -287,10 +325,10 @@ class KaeCluster(object):
 
         return secrets
 
-    def delete_secret(self, appname, namespace="default"):
-        self.core_v1api.delete_namespaced_secret(name=appname, namespace=namespace, body=client.V1DeleteOptions())
+    def delete_secret(self, appname):
+        self.core_api.delete_namespaced_secret(name=appname, namespace=self.namespace, body=client.V1DeleteOptions())
 
-    def apply(self, d, namespace="default"):
+    def apply(self, d):
         """
         create or update deplopyment, service, ingress
         :param d:
@@ -301,66 +339,67 @@ class KaeCluster(object):
         name = d["metadata"]["name"]
         if kind == "Deployment":
             try:
-                self.extensions_api.replace_namespaced_deployment(name=name, body=d, namespace=namespace)
+                self.apps_api.replace_namespaced_deployment(name=name, body=d, namespace=self.namespace)
             except ApiException as e:
                 if e.status == 404:
-                    self.extensions_api.create_namespaced_deployment(body=d, namespace=namespace)
+                    self.apps_api.create_namespaced_deployment(body=d, namespace=self.namespace)
                 else:
                     raise e
         elif kind == "Service":
-            self.create_or_update_service(d, namespace)
+            self.create_or_update_service(d)
         elif kind == "Ingress":
             try:
-                self.extensions_api.replace_namespaced_ingress(name=name, body=d, namespace=namespace)
+                self.networking_api.replace_namespaced_ingress(name=name, body=d, namespace=self.namespace)
             except ApiException as e:
                 if e.status == 404:
-                    self.extensions_api.create_namespaced_ingress(body=d, namespace=namespace)
+                    self.networking_api.create_namespaced_ingress(body=d, namespace=self.namespace)
                 else:
                     raise e
 
-    def create_or_update_service(self, d, namespace="default"):
+    def create_or_update_service(self, d):
         name = d['metadata']['name']
         try:
-            result = self.core_v1api.read_namespaced_service(name=name, namespace=namespace)
+            result = self.core_api.read_namespaced_service(name=name, namespace=self.namespace)
             d['metadata']['resourceVersion'] = result.metadata.resource_version
             d['spec']['clusterIP'] = result.spec.cluster_ip
-            self.core_v1api.replace_namespaced_service(name=name, body=d, namespace=namespace)
+            self.core_api.replace_namespaced_service(name=name, body=d, namespace=self.namespace)
         except ApiException as e:
             if e.status == 404:
-                self.core_v1api.create_namespaced_service(body=d, namespace=namespace)
+                self.core_api.create_namespaced_service(body=d, namespace=self.namespace)
             else:
                 raise e
 
-    def renew_app(self, appname, namespace='default'):
+    def renew_app(self, appname):
         """
         force kubernetes to recreate the pods, it mainly used to make secrets and configmap effective.
         :param appname:
         :param namespace:
         :return:
         """
-        deployment = self.extensions_api.read_namespaced_deployment(name=appname, namespace=namespace)
+        deployment = self.apps_api.read_namespaced_deployment(name=appname, namespace=self.namespace)
 
         if deployment.spec.template.metadata.annotations is None:
             deployment.spec.template.metadata.annotations = {}
         deployment.spec.template.metadata.annotations['renew_id'] = id_generator(10)
-        self.extensions_api.replace_namespaced_deployment(name=appname, namespace=namespace, body=deployment)
+        self.apps_api.replace_namespaced_deployment(name=appname, namespace=self.namespace, body=deployment)
 
-    def deploy_app(self, spec, release_tag, namespace="default"):
+    def deploy_app(self, spec, release_tag, dp_id):
         ing = None
         dp_annotations = {
             'release_tag': release_tag,
+            'deploy_id': str(dp_id),
         }
         dp = self._create_deployment_dict(spec, annotations=dp_annotations)
         svc = self._create_service_dict(spec)
 
         if spec.type == "web":
             ing = self._create_ingress_dict(spec)
-        self.apply(dp, namespace=namespace)
-        self.apply(svc, namespace=namespace)
+        self.apply(dp)
+        self.apply(svc)
         if ing is not None:
-            self.apply(ing, namespace=namespace)
+            self.apply(ing)
 
-    def deploy_app_canary(self, spec, release_tag, namespace="default"):
+    def deploy_app_canary(self, spec, release_tag):
         """
         create Canary Deployment for specified app.
         """
@@ -373,8 +412,8 @@ class KaeCluster(object):
         dp_dict = self._create_deployment_dict(spec_copy, annotations=dp_annotations, canary=True)
         svc_dict = self._create_service_dict(spec_copy, canary=True)
 
-        self.apply(dp_dict, namespace=namespace)
-        self.apply(svc_dict, namespace=namespace)
+        self.apply(dp_dict)
+        self.apply(svc_dict)
 
     def add_canary_backend(self, appname, ing):
         canary_appname = make_canary_appname(appname)
@@ -392,14 +431,14 @@ class KaeCluster(object):
             rule.http.paths.extend(extra_paths)
         return ing
 
-    def set_abtesting_rules(self, appname, rules, namespace="default"):
+    def set_abtesting_rules(self, appname, rules):
         weight_keys = [
             "traefik.ingress.kubernetes.io/service-weights",
             "{}/service-weight".format(INGRESS_ANNOTATIONS_PREFIX)
         ]
         canary_appname = make_canary_appname(appname)
         annotations_key = "{}/service-match".format(INGRESS_ANNOTATIONS_PREFIX)
-        ing = self.extensions_api.read_namespaced_ingress(appname, namespace=namespace)
+        ing = self.networking_api.read_namespaced_ingress(appname, namespace=self.namespace)
         # data = {
         #     "backend": {
         #         "service": canary_appname,
@@ -419,11 +458,11 @@ class KaeCluster(object):
         # add backend if needed
         ing = self.add_canary_backend(appname, ing)
 
-        self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=namespace)
+        self.networking_api.replace_namespaced_ingress(name=appname, body=ing, namespace=self.namespace)
 
-    def get_abtesting_rules(self, appname, namespace="default"):
+    def get_abtesting_rules(self, appname):
         annotations_key = "{}/service-match".format(INGRESS_ANNOTATIONS_PREFIX)
-        ing = self.extensions_api.read_namespaced_ingress(appname, namespace=namespace)
+        ing = self.networking_api.read_namespaced_ingress(appname, namespace=self.namespace)
         annotations = ing.metadata.annotations if ing.metadata.annotations else {}
         full_rules_str = annotations.get(annotations_key, None)
         if full_rules_str is None:
@@ -435,7 +474,7 @@ class KaeCluster(object):
         return parts[1]
         # return full_rules.get("rules", None)
 
-    def set_traefik_weight(self, appname, weight, namespace="default"):
+    def set_traefik_weight(self, appname, weight):
         canary_appname = make_canary_appname(appname)
         annotations_key = "traefik.ingress.kubernetes.io/service-weights"
         annotations_val = "{}: {}%\n".format(canary_appname, weight)
@@ -444,7 +483,7 @@ class KaeCluster(object):
         # <new-svc-name>:<new-svc-weight>, <old-svc-name>:<old-svc-weight>
         ngx_annotations_val = "{}:{}, {}:{}\n".format(canary_appname, weight, appname, 100-weight)
 
-        ing = self.extensions_api.read_namespaced_ingress(appname, namespace=namespace)
+        ing = self.networking_api.read_namespaced_ingress(appname, namespace=self.namespace)
         annotations = ing.metadata.annotations if ing.metadata.annotations else {}
         annotations[annotations_key] = annotations_val
         annotations[ngx_annotations_key] = ngx_annotations_val
@@ -455,9 +494,9 @@ class KaeCluster(object):
         # add canary backend if needed
         ing = self.add_canary_backend(appname, ing)
 
-        self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=namespace)
+        self.networking_api.replace_namespaced_ingress(name=appname, body=ing, namespace=self.namespace)
 
-    def undeploy_app_canary(self, appname, namespace="default", ignore_404=False):
+    def undeploy_app_canary(self, appname, ignore_404=False):
         canary_appname = make_canary_appname(appname)
         delete_keys = [
             "{}/service-match".format(INGRESS_ANNOTATIONS_PREFIX),
@@ -466,7 +505,7 @@ class KaeCluster(object):
         ]
         # remove abtesting rules
         try:
-            ing = self.extensions_api.read_namespaced_ingress(appname, namespace=namespace)
+            ing = self.networking_api.read_namespaced_ingress(appname, namespace=self.namespace)
 
             annotations = ing.metadata.annotations if ing.metadata.annotations else {}
             for k in delete_keys:
@@ -480,7 +519,7 @@ class KaeCluster(object):
                 for path in need_delete:
                     rule.http.paths.remove(path)
 
-            self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=namespace)
+            self.networking_api.replace_namespaced_ingress(name=appname, body=ing, namespace=self.namespace)
             # the nginx-ingress needs about 1 seconds to detect the change of the ingress
             time.sleep(1)
         except ApiException as e:
@@ -488,8 +527,8 @@ class KaeCluster(object):
                 raise e
         # remove sevice
         try:
-            self.core_v1api.delete_namespaced_service(
-                name=canary_appname, namespace=namespace,
+            self.core_api.delete_namespaced_service(
+                name=canary_appname, namespace=self.namespace,
                 body=client.V1DeleteOptions(propagation_policy="Foreground",
                                             grace_period_seconds=5))
         except ApiException as e:
@@ -497,22 +536,23 @@ class KaeCluster(object):
                 raise e
         # remove deployment
         try:
-            self.extensions_api.delete_namespaced_deployment(
-                name=canary_appname, namespace=namespace,
+            self.apps_api.delete_namespaced_deployment(
+                name=canary_appname, namespace=self.namespace,
                 body=client.V1DeleteOptions(propagation_policy="Foreground",
                                             grace_period_seconds=5))
         except ApiException as e:
             if not (e.status == 404 and ignore_404 is True):
                 raise e
 
-    def update_app(self, appname, spec, release_tag, namespace='default', version=None, renew_id=None):
+    def update_app(self, appname, spec, release_tag, deploy_id, version=None, renew_id=None):
         dp_annotations = {
             'release_tag': release_tag,
+            'deploy_id': str(deploy_id),
         }
         d = self._create_deployment_dict(spec, version=version, renew_id=renew_id, annotations=dp_annotations)
-        self.extensions_api.replace_namespaced_deployment(name=appname, namespace=namespace, body=d)
+        self.apps_api.replace_namespaced_deployment(name=appname, namespace=self.namespace, body=d)
 
-    def rollback_app(self, appname, revision=0, namespace="default"):
+    def rollback_app(self, appname, revision=0):
         rollback_to = client.ExtensionsV1beta1RollbackConfig()
         rollback_to.revision = revision
 
@@ -523,16 +563,16 @@ class KaeCluster(object):
             api_version="extensions/v1beta1",
             kind="DeploymentRollback",
         )
-        self.extensions_api.create_namespaced_deployment_rollback(name=appname, namespace=namespace, body=rollback)
+        self.apps_api.create_namespaced_deployment_rollback(name=appname, namespace=self.namespace, body=rollback)
 
-    def undeploy_app(self, appname, apptype, namespace='default', ignore_404=False):
-        self.undeploy_app_canary(appname, namespace=namespace, ignore_404=True)
+    def undeploy_app(self, appname, apptype, ignore_404=False):
+        self.undeploy_app_canary(appname, ignore_404=True)
 
-        # delete resource in the following order: ingress, service, deployment, secret, configmap
+        # delete resource in the following order: ingress, service, hpa, deployment, secret, configmap
         if apptype == "web":
             try:
-                self.extensions_api.delete_namespaced_ingress(
-                    name=appname, namespace=namespace,
+                self.networking_api.delete_namespaced_ingress(
+                    name=appname, namespace=self.namespace,
                     body=client.V1DeleteOptions(propagation_policy="Foreground",
                                                 grace_period_seconds=5))
             except ApiException as e:
@@ -541,16 +581,21 @@ class KaeCluster(object):
 
         if apptype in ("worker", "web"):
             try:
-                self.core_v1api.delete_namespaced_service(
-                    name=appname, namespace=namespace,
+                self.core_api.delete_namespaced_service(
+                    name=appname, namespace=self.namespace,
                     body=client.V1DeleteOptions(propagation_policy="Foreground",
                                                 grace_period_seconds=5))
             except ApiException as e:
                 if not (e.status == 404 and ignore_404 is True):
                     raise e
         try:
-            self.extensions_api.delete_namespaced_deployment(
-                name=appname, namespace=namespace,
+            self.delete_hpa(appname)
+        except ApiException as e:
+            if e.status != 404:
+                raise e
+        try:
+            self.apps_api.delete_namespaced_deployment(
+                name=appname, namespace=self.namespace,
                 body=client.V1DeleteOptions(propagation_policy="Foreground",
                                             grace_period_seconds=5))
         except ApiException as e:
@@ -558,17 +603,17 @@ class KaeCluster(object):
                 raise e
 
         try:
-            self.delete_secret(appname, namespace)
+            self.delete_secret(appname)
         except ApiException as e:
             if e.status != 404:
                 raise e
         try:
-            self.delete_config_map(appname, namespace)
+            self.delete_config_map(appname)
         except ApiException as e:
             if e.status != 404:
                 raise e
 
-    def get_deployment(self, name, namespace='default', ignore_404=False):
+    def get_deployment(self, name, ignore_404=False):
         """
         get kubernetes deployment object
         :param name:
@@ -576,14 +621,14 @@ class KaeCluster(object):
         :return:
         """
         try:
-            return self.extensions_api.read_namespaced_deployment(name=name, namespace=namespace)
+            return self.apps_api.read_namespaced_deployment(name=name, namespace=self.namespace)
         except ApiException as e:
             if e.status == 404 and ignore_404 is True:
                 return None
             else:
                 raise e
 
-    def get_ingress(self, name, namespace='default', ignore_404=False):
+    def get_ingress(self, name, ignore_404=False):
         """
         get kubernetes deployment object
         :param name:
@@ -591,7 +636,7 @@ class KaeCluster(object):
         :return:
         """
         try:
-            return self.extensions_api.read_namespaced_ingress(name=name, namespace=namespace)
+            return self.networking_api.read_namespaced_ingress(name=name, namespace=self.namespace)
         except ApiException as e:
             if e.status == 404 and ignore_404 is True:
                 return None
@@ -750,7 +795,7 @@ class KaeCluster(object):
             annotations = {}
 
         obj = Dict({
-            'apiVersion': 'extensions/v1beta1',
+            'apiVersion': 'apps/v1',
             'kind': 'Deployment',
             'metadata': {
                 'name': appname,
@@ -856,7 +901,7 @@ class KaeCluster(object):
         svc = spec.service
 
         obj = Dict({
-            'apiVersion': 'extensions/v1beta1',
+            'apiVersion': 'networking.k8s.io/v1beta1',
             'kind': 'Ingress',
             'metadata': {
                 'name': appname,

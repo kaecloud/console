@@ -68,7 +68,7 @@ class App(BaseModelMixin):
         """
         # delete all releases
         Release.query.filter_by(app_id=self.id).delete()
-        SpecVersion.query.filter_by(app_id=self.id).delete()
+        DeployVersion.query.filter_by(app_id=self.id).delete()
         return super(App, self).delete()
 
 
@@ -135,13 +135,6 @@ class Release(BaseModelMixin):
     def delete(self):
         logger.warn('Deleting release %s', self)
         return super(Release, self).delete()
-
-    def get_previous_version(self, n=0):
-        q_set = Release.query.filter(Release.app_id == self.app_id, Release.id < self.id).order_by(Release.id.desc()).limit(n+1).all()
-        if len(q_set) <= n:
-            return None
-        else:
-            return q_set[n]
 
     @classmethod
     def get(cls, id):
@@ -274,18 +267,20 @@ class AppYaml(BaseModelMixin):
         return unmarshal_result.data
 
 
-class SpecVersion(BaseModelMixin):
+class DeployVersion(BaseModelMixin):
     # TODO use ForeignKey
     # git tag
     tag = db.Column(db.CHAR(64), nullable=False, index=True)
     app_id = db.Column(db.Integer, nullable=False)
+    config_id = db.Column(db.Integer, nullable=False)
+    parent_id = db.Column(db.Integer, nullable=False)
     specs_text = db.Column(db.Text)
 
     def __str__(self):
         return 'SpecVersion <{r.appname}:{r.tag}:{r.id}>'.format(r=self)
 
     @classmethod
-    def create(cls, app, tag, specs_text):
+    def create(cls, app, tag, specs_text, parent_id, config_id=-1):
         """app must be an App instance"""
         if isinstance(specs_text, Dict):
             specs_text = yaml.dump(specs_text.to_dict())
@@ -296,23 +291,25 @@ class SpecVersion(BaseModelMixin):
             app_specs_schema.load(yaml.load(specs_text))
 
         try:
-            new_release = cls(tag=tag, app_id=app.id, specs_text=specs_text)
-            db.session.add(new_release)
+            ver = cls(tag=tag, app_id=app.id, parent_id=parent_id, config_id=config_id, specs_text=specs_text)
+            db.session.add(ver)
             db.session.commit()
         except IntegrityError:
             logger.warn('Fail to create SpecVersion %s %s, duplicate', app.name, tag)
             db.session.rollback()
             raise
 
-        return new_release
+        return ver
 
     def delete(self):
-        logger.warn('Deleting release %s', self)
-        return super(SpecVersion, self).delete()
+        logger.warn('Deleting DeployVersion %s', self)
+        return super(DeployVersion, self).delete()
 
     @classmethod
     def get(cls, id):
-        r = super(SpecVersion, cls).get(id)
+        if isinstance(id, str):
+            id = int(id)
+        r = super(DeployVersion, cls).get(id)
         if r and r.app:
             return r
         return None
@@ -326,8 +323,12 @@ class SpecVersion(BaseModelMixin):
             return q[start:start + limit]
 
     @classmethod
-    def get_newest_version_by_tag_app(cls, app_id, tag):
-        return SpecVersion.query.filter_by(app_id=app_id, tag=tag).order_by(SpecVersion.id.desc()).first()
+    def get_previous_version(cls, cur_id, revision):
+        while revision >= 0:
+            ver = cls.get(id=cur_id)
+            cur_id = ver.parent_id
+            revision -= 1
+        return cls.get(id=cur_id)
 
     @property
     def release(self):
@@ -346,6 +347,44 @@ class SpecVersion(BaseModelMixin):
         dic = yaml.load(self.specs_text)
         unmarshal_result = app_specs_schema.load(dic)
         return unmarshal_result.data
+
+
+class AppConfig(BaseModelMixin):
+    app_id = db.Column(db.Integer, nullable=False)
+    content = db.Column(db.Text)
+    comment = db.Column(db.Text)
+
+    def __str__(self):
+        return '<{r.appname}:{r.name}>'.format(r=self)
+
+    @classmethod
+    def create(cls, app, content, comment=''):
+        """app must be an App instance"""
+        appname = app.name
+
+        try:
+            new_cfg = cls(app_id=app.id, content=content, comment=comment)
+            db.session.add(new_cfg)
+            db.session.commit()
+        except IntegrityError:
+            logger.warn('Fail to create AppConfig %s, duplicate', appname)
+            db.session.rollback()
+            raise
+
+        return new_cfg
+
+    @classmethod
+    def get_by_app(cls, app, start=0, limit=10):
+        q = cls.query.filter_by(app_id=app.id).order_by(cls.id.desc())
+        return q[start:start + limit]
+
+    @property
+    def app(self):
+        return App.get(self.app_id)
+
+    @property
+    def appname(self):
+        return self.app.name
 
 
 event.listen(

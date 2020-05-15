@@ -16,7 +16,7 @@ from flasgger import Swagger
 from werkzeug.utils import import_string
 
 from console.config import (
-    DEBUG, SENTRY_DSN, TASK_PUBSUB_CHANNEL,
+    DEBUG, LOG_LEVEL, SENTRY_DSN, TASK_PUBSUB_CHANNEL,
     TASK_PUBSUB_EOF, BEARYCHAT_CHANNEL,
     SSO_CLIENT_ID, SSO_CLIENT_SECRET, SSO_REALM, SSO_HOST,
     SERVER_HOST,
@@ -32,7 +32,7 @@ if DEBUG:
 else:
     logging.getLogger('requests').setLevel(logging.CRITICAL)
     logging.getLogger('urllib3').setLevel(logging.CRITICAL)
-    loglevel = logging.INFO
+    loglevel = LOG_LEVEL
 
 logging.basicConfig(level=loglevel,
                     format='[%(asctime)s] [%(process)d] [%(levelname)s] [%(filename)s @ %(lineno)s]: %(message)s',

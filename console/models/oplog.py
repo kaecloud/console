@@ -9,7 +9,6 @@ from sqlalchemy import inspect
 from console.ext import db
 from console.libs.datastructure import purge_none_val_from_dict
 from console.models.base import BaseModelMixin, Enum34
-from console.models.user import User
 
 
 class OPType(enum.Enum):
@@ -30,7 +29,7 @@ class OPType(enum.Enum):
 class OPLog(BaseModelMixin):
 
     __tablename__ = 'operation_log'
-    user_id = db.Column(db.Integer, nullable=False, default=0, index=True)
+    username = db.Column(db.CHAR(64), nullable=False, index=True)
     app_id = db.Column(db.Integer, nullable=False, default=0, index=True)
     appname = db.Column(db.CHAR(64), nullable=False, default='', index=True)
     tag = db.Column(db.CHAR(64), nullable=False, default='', index=True)
@@ -58,9 +57,9 @@ class OPLog(BaseModelMixin):
         return cls.query.filter(sqlalchemy.and_(*filters)).order_by(cls.id.desc()).limit(limit).all()
 
     @classmethod
-    def create(cls, user_id=None, app_id=None, appname=None,
+    def create(cls, username=None, app_id=None, appname=None,
                tag=None, action=None, content=None, cluster=''):
-        op_log = cls(user_id=user_id, app_id=app_id, cluster=cluster,
+        op_log = cls(username=username, app_id=app_id, cluster=cluster,
                      appname=appname, tag=tag, action=action, content=content)
         db.session.add(op_log)
         db.session.commit()
@@ -73,9 +72,7 @@ class OPLog(BaseModelMixin):
     def to_dict(self):
         dic = {c.key: getattr(self, c.key)
                for c in inspect(self).mapper.column_attrs
-               if c.key not in ('user_id', 'app_id')}
-        user = User.get_by_id(self.user_id)
-        dic['username'] = user.nickname
+               if c.key not in ('app_id', )}
         dic['action'] = self.action.name
         return dic
 

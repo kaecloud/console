@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import logging
 import pathlib
 import shutil
 import redis
@@ -11,10 +12,12 @@ from kombu import Queue
 DEBUG = getenv('DEBUG', default=False, type=bool)
 FAKE_USER = {
     'id': 12345,
-    'username': 'sheldon',
-    'nickname': 'Sheldon Lee Cooper',
-    'email': 'sheldon@sheldon.com',
+    'username': 'jim',
+    'email': 'jim@jim.com',
+    'firstName': 'Jim',
+    'lastName': 'Green',
 }
+LOG_LEVEL = logging.INFO
 
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

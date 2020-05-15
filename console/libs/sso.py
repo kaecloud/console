@@ -76,7 +76,10 @@ class SSO(object):
 
     def get_user(self, username):
         return self.user_map.get(username)
-    
+
+    def get_users(self):
+        return self.user_map.values()
+
     def refresh(self):
         self._fetch_all_user_group()
 

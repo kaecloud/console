@@ -299,7 +299,6 @@ class AppYamlArgsSchema(StrictSchema):
 class PodEntryArgsSchema(StrictSchema):
     podname = fields.Str(required=True)
     cluster = fields.Str(required=True)
-    namespace = fields.Str(required=True)
     container = fields.Str()
 
 

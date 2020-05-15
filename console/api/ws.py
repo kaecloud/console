@@ -100,7 +100,7 @@ def get_app_pods_events(socket, appname):
         socket.send(make_errmsg('app {} not found'.format(appname), jsonize=True))
         return
 
-    if not check_rbac(app, [RBACAction.GET, ]):
+    if not check_rbac([RBACAction.GET, ], app):
         socket.send(make_errmsg('You\'re not granted to this app, ask administrators for permission', jsonize=True))
         return
 
@@ -270,7 +270,7 @@ def build_app(socket, appname):
         socket.send(make_errmsg('app {} not found'.format(appname), jsonize=True))
         return
 
-    if not check_rbac(app, [RBACAction.BUILD, ]):
+    if not check_rbac([RBACAction.BUILD, ], app):
         socket.send(make_errmsg('You\'re not granted to this app, ask administrators for permission', jsonize=True))
         return
     release = app.get_release_by_tag(tag)
@@ -354,8 +354,9 @@ def build_app(socket, appname):
   </div>
 </div>'''
                 email_text = email_text_tpl.format(text_title, html.escape("\n".join(total_msg)) + '\n' + build_result_text)
-                email_list = [u.email for u in app.users]
-                send_email(email_list, subject, email_text)
+                # TODO better way to get users to send email
+                # email_list = [u.email for u in app.users]
+                # send_email(email_list, subject, email_text)
                 bearychat_sendmsg(BEARYCHAT_CHANNEL, bearychat_msg)
         else:
             socket.send(make_msg("Unknown", msg="there seems exist another build task, try to fetch output", jsonize=True))
@@ -402,16 +403,15 @@ def enter_pod(socket, appname):
         socket.send(make_errmsg('app {} not found'.format(appname), jsonize=True))
         return
 
-    if not check_rbac(app, [RBACAction.ENTER_CONTAINER, ]):
+    if not check_rbac([RBACAction.ENTER_CONTAINER, ], app):
         socket.send(make_errmsg('You\'re not granted to this app, ask administrators for permission', jsonize=True))
         return
 
     args = payload.data
     podname = args['podname']
     cluster = args['cluster']
-    namespace = args['namespace']
     container = args.get('container', None)
-    sh = KubeApi.instance().exec_shell(podname, namespace=namespace, cluster_name=cluster, container=container)
+    sh = KubeApi.instance().exec_shell(podname, cluster_name=cluster, container=container)
     need_exit = False
 
     def heartbeat_sender():

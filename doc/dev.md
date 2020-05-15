@@ -11,4 +11,9 @@ you also need start celery workers
     docker exec -it kae-console sh
     celery -A console.app:celery worker --autoscale=4,1 -B
 
+you also need run a pod watcher
+
+    docker exec -it kae-console sh
+    sh bin/run-pods-watcher
+
 A redis instance and a mysql instance are also needed

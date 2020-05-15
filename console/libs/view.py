@@ -9,6 +9,7 @@ from console.libs.exceptions import URLPrefixError
 from console.libs.jsonutils import jsonize
 from console.config import FAKE_USER
 from console.models.user import User, get_current_user
+from console.libs.utils import logger
 
 
 ERROR_CODES = [400, 401, 403, 404, 408]

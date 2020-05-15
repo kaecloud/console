@@ -8,9 +8,8 @@ from urllib3.exceptions import ProtocolError
 from console.app import celery
 from console.libs.utils import logger
 from console.libs.k8s import KubeApi
-from console.libs.utils import make_app_watcher_channel_name
+from console.libs.utils import make_app_watcher_channel_name, get_cluster_names
 from console.libs.jsonutils import VersatileEncoder
-from console.tasks import handle_job_pod_event
 from console.ext import rds
 
 
@@ -27,9 +26,9 @@ class LongRunningWatcher(object):
         self.thread_map = {}
 
     def start(self):
-        for name in KubeApi.instance().cluster_names:
+        for name in get_cluster_names():
             logger.info("create watcher thread for cluster {}".format(name))
-            self.thread_map[name] = spawn(self.watch_app_job_pods, name)
+            self.thread_map[name] = spawn(self.watch_app_pods, name)
 
     def wait(self):
         while True:
@@ -37,11 +36,11 @@ class LongRunningWatcher(object):
                 t.join(30)
                 if not t.isAlive():
                     logger.info("cluster {}'s watcher thread crashed, restart it".format(name))
-                    self.thread_map[name] = spawn(self.watch_app_job_pods, name)
+                    self.thread_map[name] = spawn(self.watch_app_pods, name)
 
-    def watch_app_job_pods(self, cluster):
+    def watch_app_pods(self, cluster):
         last_seen_version = None
-        label_selector = "kae-type in (app, job)"
+        label_selector = "kae-type == app"
         while True:
             try:
                 if last_seen_version is not None:
@@ -62,11 +61,6 @@ class LongRunningWatcher(object):
                             'action': event['type'],
                         }
                         rds.publish(message=json.dumps(data, cls=VersatileEncoder), channel=channel)
-                    elif 'kae-job-name' in labels:
-                        if event['type'] == 'DELETED':
-                            continue
-                        jobname = labels['kae-job-name']
-                        handle_job_pod_event.delay(jobname, event['raw_object'])
             except ProtocolError:
                 logger.warn('skip this error... because kubernetes disconnect client after default 10m...')
             except Exception as e:
