@@ -272,15 +272,15 @@ class DeployVersion(BaseModelMixin):
     # git tag
     tag = db.Column(db.CHAR(64), nullable=False, index=True)
     app_id = db.Column(db.Integer, nullable=False)
-    config_id = db.Column(db.Integer, nullable=False)
     parent_id = db.Column(db.Integer, nullable=False)
+    config_id = db.Column(db.Integer)
     specs_text = db.Column(db.Text)
 
     def __str__(self):
-        return 'SpecVersion <{r.appname}:{r.tag}:{r.id}>'.format(r=self)
+        return 'DeployVersion <{r.appname}:{r.tag}:{r.id}>'.format(r=self)
 
     @classmethod
-    def create(cls, app, tag, specs_text, parent_id, config_id=-1):
+    def create(cls, app, tag, specs_text, parent_id, config_id=None):
         """app must be an App instance"""
         if isinstance(specs_text, Dict):
             specs_text = yaml.dump(specs_text.to_dict())
@@ -348,6 +348,20 @@ class DeployVersion(BaseModelMixin):
         unmarshal_result = app_specs_schema.load(dic)
         return unmarshal_result.data
 
+    @cached_property
+    def app_config(self):
+        if self.config_id is None:
+            return None
+        return AppConfig.get(self.config_id)
+
+    def to_k8s_annotation(self):
+        return {
+            'deploy_id': self.id,
+            'app_id': self.app_id,
+            'release_tag': self.tag,
+            'config_id': self.config_id,
+        }
+
 
 class AppConfig(BaseModelMixin):
     app_id = db.Column(db.Integer, nullable=False)
@@ -361,6 +375,8 @@ class AppConfig(BaseModelMixin):
     def create(cls, app, content, comment=''):
         """app must be an App instance"""
         appname = app.name
+        if isinstance(content, dict):
+            content = json.dumps(content)
 
         try:
             new_cfg = cls(app_id=app.id, content=content, comment=comment)
@@ -378,6 +394,11 @@ class AppConfig(BaseModelMixin):
         q = cls.query.filter_by(app_id=app.id).order_by(cls.id.desc())
         return q[start:start + limit]
 
+    @classmethod
+    def get_newest_config(cls, app):
+        q = cls.query.filter_by(app_id=app.id).order_by(cls.id.desc())
+        return q[0] if len(q) > 0 else None
+
     @property
     def app(self):
         return App.get(self.app_id)
@@ -385,6 +406,10 @@ class AppConfig(BaseModelMixin):
     @property
     def appname(self):
         return self.app.name
+
+    @cached_property
+    def data_dict(self):
+        return json.loads(self.content)
 
 
 event.listen(

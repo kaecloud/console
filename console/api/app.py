@@ -25,7 +25,7 @@ from console.libs.utils import (
 )
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
 from console.models import (
-    App, Release, DeployVersion, User, OPLog, OPType, AppYaml,
+    App, Release, DeployVersion, User, OPLog, OPType, AppYaml, AppConfig,
     RBACAction, check_rbac, prepare_roles_for_new_app,
 )
 from console.libs.k8s import KubeApi, KubeError
@@ -308,6 +308,9 @@ def rollback_app(args, appname):
             renew_id = k8s_deployment.spec.template.metadata.annotations.get("renew_id", None)
 
         previous_ver = DeployVersion.get_previous_version(deploy_id, revision)
+        if previous_ver is None:
+            abort(403, "invalid revision")
+
         specs = previous_ver.specs
         # we never decrease replicas when rollback
         if k8s_deployment is not None and k8s_deployment.spec.replicas > specs.service.replicas:
@@ -315,7 +318,7 @@ def rollback_app(args, appname):
 
         with handle_k8s_error('Error when update app({}:{})'.format(appname, version)):
             KubeApi.instance().update_app(
-                appname, specs, previous_ver.tag, deploy_id=previous_ver.id,
+                appname, specs, previous_ver,
                 cluster_name=cluster, version=version, renew_id=renew_id)
 
     OPLog.create(
@@ -873,9 +876,13 @@ def create_config_map(args, appname):
     cm_data = args['data']
     replace = args['replace']
     # check if the user can access the App
-    get_app_raw(appname, [RBACAction.UPDATE_CONFIG, ], cluster)
-    with handle_k8s_error("Failed to create config map"):
-        KubeApi.instance().create_or_update_config_map(appname, cm_data, replace=replace, cluster_name=cluster)
+    app = get_app_raw(appname, [RBACAction.UPDATE_CONFIG, ], cluster)
+    if not replace:
+        exist_data = KubeApi.instance().get_config_map(appname, cluster_name=cluster)
+        exist_data.update(cm_data)
+        cm_data = exist_data
+    AppConfig.create(app, exist_data)
+
     return DEFAULT_RETURN_VALUE
 
 
@@ -910,6 +917,46 @@ def get_config_map(args, appname):
     with handle_k8s_error("Failed to get config map"):
         raw_data = KubeApi.instance().get_config_map(appname, cluster_name=cluster)
         return raw_data
+
+
+@bp.route('/<appname>/configmap/list')
+@use_args(ClusterArgSchema(), location="query")
+@user_require(True)
+def list_config_map(args, appname):
+    """
+    get config list of specified app
+    ---
+    parameters:
+      - name: appname
+        in: path
+        type: string
+        required: true
+      - name: cluster
+        in: query
+        type: string
+        required: true
+    responses:
+      200:
+        description: Error information
+        schema:
+          type: string
+        examples:
+           plain/text:
+             "aaa=11"
+    """
+    cluster = args['cluster']
+    # check if the user can access the App
+    app = get_app_raw(appname, [RBACAction.GET_CONFIG, ], cluster)
+    cfg_list = AppConfig.get_by_app(app)
+
+    with handle_k8s_error("Failed to get config map"):
+        cfg_obj = KubeApi.instance().get_config_map(appname, raw=True, cluster_name=cluster)
+        config_id = cfg_obj.metadata.annotations['config_id']
+    result = {
+        "data": cfg_list,
+        "current": cfg_id,
+    }
+    return result
 
 
 @bp.route('/<appname>/yaml')
@@ -1181,16 +1228,16 @@ def scale_app(args, appname):
         with handle_k8s_error("Error when get deployment"):
             k8s_deployment = KubeApi.instance().get_deployment(appname, cluster_name=cluster)
 
-        deploy_id = k8s_deployment.metadata.annotations['deploy_id']
+        deploy_info = json.loads(k8s_deployment.metadata.annotations['kae-deploy-info'])
         version = k8s_deployment.metadata.resource_version
 
         try:
-            cur_deploy_ver = DeployVersion.get(id=deploy_id)
+            cur_deploy_ver = DeployVersion.get(id=deploy_info['deploy_id'])
         except:
             logger.exception("can't get current deploy version")
             return abort(500, "internal error")
 
-        release_tag, specs = cur_deploy_ver.tag, cur_deploy_ver.specs
+        specs = cur_deploy_ver.specs
 
         # update current specs
         replicas = args.get('replicas')
@@ -1210,7 +1257,7 @@ def scale_app(args, appname):
             renew_id = k8s_deployment.spec.template.metadata.annotations.get("renew_id", None)
 
         with handle_k8s_error("Error when scale app {}".format(appname)):
-            KubeApi.instance().update_app(appname, specs, release_tag, deploy_id=deploy_id,
+            KubeApi.instance().update_app(appname, specs, cur_deploy_ver,
                                           version=version, renew_id=renew_id, cluster_name=cluster)
     OPLog.create(
         username=g.user.username,
@@ -1275,6 +1322,7 @@ def deploy_app(args, appname):
     cluster = args['cluster']
     tag = args["tag"]
     app_yaml_name = args['app_yaml_name']
+    config_id = args.get('config_id')
 
     app = get_app_raw(appname, [RBACAction.DEPLOY], cluster)
 
@@ -1285,14 +1333,18 @@ def deploy_app(args, appname):
     if not app_yaml:
         abort(404, "AppYaml {} doesn't exist.".format(app_yaml_name))
 
-    with lock_app(appname):
+    # check release
+    release = app.get_release_by_tag(tag)
+    if not release:
+        abort(404, 'release {} not found.'.format(tag))
+    if release.build_status is False:
+        abort(403, "please build release first")
 
+    with lock_app(appname):
+        # check canary
         canary_info = _get_canary_info(appname, cluster)
         if canary_info['status']:
             abort(403, "please delete canary release before you deploy a new release")
-        release = app.get_release_by_tag(tag)
-        if not release:
-            abort(404, 'release {} not found.'.format(tag))
 
         with handle_k8s_error("Error when get deployment"):
             k8s_deployment = KubeApi.instance().get_deployment(appname, cluster_name=cluster, ignore_404=True)
@@ -1316,9 +1368,26 @@ def deploy_app(args, appname):
         except IndexError:
             abort(403, "cpus or memories' index is larger than the number of containers")
 
-        if release.build_status is False:
-            abort(403, "please build release first")
-        # check secret and configmap
+        # create deploy version 
+        try:
+            deploy_info = None
+            if config_id is None:
+                # if config_id is None, then use the current config id
+                if k8s_deployment is not None:
+                    deploy_info = json.loads(k8s_deployment.metadata.annotations['kae-deploy-info'])
+                    config_id = deploy_info.get('config_id')
+            elif config_id < 0:
+                # if config_id is negative, then use the newest config
+                newest_cfg = AppConfig.get_newest_config(app)
+                if newest_cfg:
+                    config_id = newest_cfg.id
+
+            deploy_ver = DeployVersion.create(app, tag, specs, parent_id=deploy_id, config_id=config_id)
+        except:
+            logger.exception("can't create deploy version")
+            abort(500, "internal server error")
+
+        # check secret
         secret_keys = get_spec_secret_keys(specs)
         if len(secret_keys) > 0:
             try:
@@ -1332,32 +1401,18 @@ def deploy_app(args, appname):
             if len(diff_keys) > 0:
                 abort(403, "%s are not in secret, please set it first" % str(diff_keys))
 
+        # check configmap
         configmap_keys = get_spec_configmap_keys(specs)
         if len(configmap_keys) > 0:
-            try:
-                cm_data = KubeApi.instance().get_config_map(appname, cluster_name=cluster)
-            except ApiException as e:
-                if e.status == 404:
-                    abort(403, "please set configmap for app {}".format(appname))
-                else:
-                    raise e
+            if deploy_ver.app_config is None:
+                abort(403, "please set configmap for app {}".format(appname))
+            cm_data = deploy_ver.app_config.data_dict
             diff_keys = set(configmap_keys) - set(cm_data.keys())
             if len(diff_keys) > 0:
                 abort(403, "%s are not in configmap" % str(diff_keys))
 
         try:
-            deploy_id = -1
-            if k8s_deployment is not None:
-                deploy_id = k8s_deployment.metadata.annotations['deploy_id']
-                # TODO validate deploy id
-                cur_spec_ver = DeployVersion.get(id=deploy_id)
-            spec_ver = DeployVersion.create(app, tag, specs, parent_id=deploy_id)
-        except:
-            logger.exception("can't create spec version")
-            abort(500, "internal server error")
-
-        try:
-            KubeApi.instance().deploy_app(specs, release.tag, spec_ver.id, cluster_name=cluster)
+            KubeApi.instance().deploy_app(specs, deploy_ver, cluster_name=cluster)
         except KubeError as e:
             abort(403, "Deploy Error: {}".format(str(e)))
         except ApiException as e:
@@ -1371,7 +1426,7 @@ def deploy_app(args, appname):
             app_id=app.id,
             cluster=cluster,
             appname=appname,
-            tag=release.tag,
+            tag=tag,
             action=OPType.DEPLOY_APP,
         )
         return DEFAULT_RETURN_VALUE

@@ -1,7 +1,7 @@
 # coding: utf-8
 
 from .user import User, Group, get_current_user
-from .app import App, Release, DeployVersion, AppYaml
+from .app import App, Release, DeployVersion, AppYaml, AppConfig
 from .oplog import OPLog, OPType
 from .rbac import (
     Role, UserRoleBinding, GroupRoleBinding, RBACAction, str2action, str2actions,
@@ -9,7 +9,7 @@ from .rbac import (
 )
 
 __all__ = [
-    'User', 'App', 'Release', 'DeployVersion', 'AppYaml',
+    'User', 'App', 'Release', 'DeployVersion', 'AppYaml', 'AppConfig',
     'OPLog', 'OPType',
     'User', 'Group', 'get_current_user',
     'Role', 'UserRoleBinding', 'GroupRoleBinding', 'RBACAction', 'check_rbac',

@@ -3,6 +3,7 @@ import time
 import yaml
 import base64
 import copy
+import json
 from addict import Dict
 from kubernetes import client, config, watch
 from kubernetes.watch.watch import iter_resp_lines
@@ -247,13 +248,12 @@ class KaeCluster(object):
     def delete_hpa(self, appname):
         self.scale_api.delete_namespaced_horizontal_pod_autoscaler(name=appname, namespace=self.namespace)
 
-    def create_or_update_config_map(self, appname, cm_data, replace=True):
+    def create_or_update_config_map(self, appname, config_id, cm_data, replace=True):
         """
         create or update configmap for specfied app
         :param appname:
         :param cm_data: configmap data dict
         :param replace: if it set to True, the existing configmap data is replaced by cm_data, otherwise cm_data is merged to the exising data
-        :param namespace:
         :return:
         """
         try:
@@ -272,9 +272,24 @@ class KaeCluster(object):
             else:
                 raise e
 
-    def get_config_map(self, appname):
-        result = self.core_api.read_namespaced_config_map(name=appname, namespace=self.namespace)
-        return result.data
+    def get_config_map(self, appname, raw=False, ignore_404=False):
+        """
+        get configmap of specfied app
+        :param appname: app name
+        :param raw: if set True return the raw configmap object, otherwise return the data in configmap
+        :return:
+        """
+        try:
+            result = self.core_api.read_namespaced_config_map(name=appname, namespace=self.namespace)
+            if raw:
+                return result 
+            else:
+                return result.data
+        except ApiException as e:
+            if e.status == 404:
+                return None
+            else:
+                raise e
 
     def delete_config_map(self, appname):
         self.core_api.delete_namespaced_config_map(name=appname, namespace=self.namespace, body=client.V1DeleteOptions())
@@ -383,12 +398,17 @@ class KaeCluster(object):
         deployment.spec.template.metadata.annotations['renew_id'] = id_generator(10)
         self.apps_api.replace_namespaced_deployment(name=appname, namespace=self.namespace, body=deployment)
 
-    def deploy_app(self, spec, release_tag, dp_id):
+    def deploy_app(self, spec, deploy_ver):
         ing = None
         dp_annotations = {
-            'release_tag': release_tag,
-            'deploy_id': str(dp_id),
+            'release_tag': deploy_ver.tag,
+            'kae-deploy-info': json.dumps(deploy_ver.to_k8s_annotation()),
         }
+        # step 1: create configmap if neccessary
+        app_cfg = deploy_ver.app_config
+        if app_cfg is not None:
+            self.create_or_update_config_map(app_cfg.appname, app_cfg.id, app_cfg.data_dict, replace=True)
+
         dp = self._create_deployment_dict(spec, annotations=dp_annotations)
         svc = self._create_service_dict(spec)
 
@@ -544,26 +564,13 @@ class KaeCluster(object):
             if not (e.status == 404 and ignore_404 is True):
                 raise e
 
-    def update_app(self, appname, spec, release_tag, deploy_id, version=None, renew_id=None):
+    def update_app(self, appname, spec, deploy_ver, version=None, renew_id=None):
         dp_annotations = {
-            'release_tag': release_tag,
-            'deploy_id': str(deploy_id),
+            'release_tag': deploy_ver.tag,
+            'kae-deploy-info': json.dumps(deploy_ver.to_k8s_annotation()),
         }
         d = self._create_deployment_dict(spec, version=version, renew_id=renew_id, annotations=dp_annotations)
         self.apps_api.replace_namespaced_deployment(name=appname, namespace=self.namespace, body=d)
-
-    def rollback_app(self, appname, revision=0):
-        rollback_to = client.ExtensionsV1beta1RollbackConfig()
-        rollback_to.revision = revision
-
-        # name and rollback_to arguments can't be None
-        rollback = client.ExtensionsV1beta1DeploymentRollback(
-            name=appname,
-            rollback_to=rollback_to,
-            api_version="extensions/v1beta1",
-            kind="DeploymentRollback",
-        )
-        self.apps_api.create_namespaced_deployment_rollback(name=appname, namespace=self.namespace, body=rollback)
 
     def undeploy_app(self, appname, apptype, ignore_404=False):
         self.undeploy_app_canary(appname, ignore_404=True)
