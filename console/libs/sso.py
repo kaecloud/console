@@ -26,7 +26,8 @@ class SSO(object):
                                     password=admin_passwd,
                                     user_realm_name=admin_realm,
                                     realm_name=realm,
-                                    verify=True)
+                                    verify=True,
+                                    auto_refresh_token=['get', 'put', 'post', 'delete'])
         self.refresh()
 
     @classmethod

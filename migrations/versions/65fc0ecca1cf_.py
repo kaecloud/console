@@ -73,7 +73,7 @@ def upgrade():
     sa.Column('appname', sa.CHAR(length=64), nullable=False),
     sa.Column('tag', sa.CHAR(length=64), nullable=False),
     sa.Column('cluster', sa.CHAR(length=64), nullable=False),
-    sa.Column('action', console.models.base.Enum34(length=20), nullable=True),
+    sa.Column('action', sa.CHAR(length=20), nullable=True),
     sa.Column('content', sa.Text(), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
