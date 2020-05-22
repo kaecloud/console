@@ -20,6 +20,33 @@ from .utils import (
     parse_image_name, id_generator, make_canary_appname, search_tls_secret, get_dfs_host_dir,
 )
 
+ANNO_CONFIG_ID = "kae-app-config-id"
+ANNO_DEPLOY_INFO = "kae-app-deploy-info"
+
+# TODO: when the upstream upgrade, remove these dirty code
+# fix the stupid Condition is None problem,
+# see: https://github.com/kubernetes-client/python/issues/1098
+import wrapt
+def fix_V2beta2HorizontalPodAutoscalerStatus___init__(wrapped, instance, args, kwargs):
+    def _resolve(conditions=None, current_metrics=None, current_replicas=None, desired_replicas=None, last_scale_time=None, observed_generation=None):  # noqa: E501
+        return {
+            "conditions": conditions or [],
+            "current_metrics": current_metrics,
+            "current_replicas": current_replicas,
+            "desired_replicas": desired_replicas,
+            "last_scale_time": last_scale_time,
+            "observed_generation": observed_generation,
+        }
+    final_kwargs = _resolve(*args, **kwargs)
+
+    return wrapped(**final_kwargs)
+
+
+wrapt.wrap_function_wrapper(
+        'kubernetes.client.models.v2beta2_horizontal_pod_autoscaler_status',
+        'V2beta2HorizontalPodAutoscalerStatus.__init__',
+        fix_V2beta2HorizontalPodAutoscalerStatus___init__)
+
 
 class KubeError(Exception):
     def __init__(self, msg):
@@ -192,7 +219,7 @@ class KaeCluster(object):
         resp = stream(self.core_api.connect_get_namespaced_pod_exec, podname, self.namespace, **kwargs)
         return resp
 
-    def create_hpa(self, appname, ref_kind, hpa_data):
+    def create_hpa(self, appname, hpa_data):
         """
         Create horizontal pod autoscaler
         see: https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/V2beta2HorizontalPodAutoscaler.md
@@ -243,7 +270,13 @@ class KaeCluster(object):
             metrics.append(metric)
         obj["spec"]["metrics"] = metrics
 
-        self.scale_api.create_namespaced_horizontal_pod_autoscaler(name=appname, namespace=self.namespace, body=obj)
+        try:
+            self.scale_api.replace_namespaced_horizontal_pod_autoscaler(name=appname, namespace=self.namespace, body=obj)
+        except ApiException as e:
+            if e.status == 404:
+                self.scale_api.create_namespaced_horizontal_pod_autoscaler(namespace=self.namespace, body=obj)
+            else:
+                raise e
 
     def delete_hpa(self, appname):
         self.scale_api.delete_namespaced_horizontal_pod_autoscaler(name=appname, namespace=self.namespace)
@@ -256,19 +289,26 @@ class KaeCluster(object):
         :param replace: if it set to True, the existing configmap data is replaced by cm_data, otherwise cm_data is merged to the exising data
         :return:
         """
+        obj = {
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {
+                "name": appname,
+                "annotations": {
+                    ANNO_CONFIG_ID: str(config_id),
+                }
+            },
+            "data": cm_data,
+        }
         try:
             cmap = self.core_api.read_namespaced_config_map(name=appname, namespace=self.namespace)
-            if replace:
-                cmap.data = cm_data
-            else:
+            if replace is True:
                 cmap.data.update(cm_data)
-            self.core_api.replace_namespaced_config_map(name=appname, namespace=self.namespace, body=cmap)
+                obj["data"] = cmap.data
+            self.core_api.replace_namespaced_config_map(name=appname, namespace=self.namespace, body=obj)
         except ApiException as e:
             if e.status == 404:
-                cmap = client.V1ConfigMap()
-                cmap.metadata = client.V1ObjectMeta(name=appname)
-                cmap.data = cm_data
-                self.core_api.create_namespaced_config_map(namespace=self.namespace, body=cmap)
+                self.core_api.create_namespaced_config_map(namespace=self.namespace, body=obj)
             else:
                 raise e
 
@@ -286,7 +326,7 @@ class KaeCluster(object):
             else:
                 return result.data
         except ApiException as e:
-            if e.status == 404:
+            if e.status == 404 and ignore_404 is True:
                 return None
             else:
                 raise e
@@ -398,15 +438,14 @@ class KaeCluster(object):
         deployment.spec.template.metadata.annotations['renew_id'] = id_generator(10)
         self.apps_api.replace_namespaced_deployment(name=appname, namespace=self.namespace, body=deployment)
 
-    def deploy_app(self, spec, deploy_ver):
+    def deploy_app(self, spec, deploy_ver, ignore_config=False):
         ing = None
         dp_annotations = {
-            'release_tag': deploy_ver.tag,
-            'kae-deploy-info': json.dumps(deploy_ver.to_k8s_annotation()),
+            ANNO_DEPLOY_INFO: json.dumps(deploy_ver.to_k8s_annotation()),
         }
         # step 1: create configmap if neccessary
         app_cfg = deploy_ver.app_config
-        if app_cfg is not None:
+        if app_cfg is not None and ignore_config is False:
             self.create_or_update_config_map(app_cfg.appname, app_cfg.id, app_cfg.data_dict, replace=True)
 
         dp = self._create_deployment_dict(spec, annotations=dp_annotations)
@@ -418,13 +457,20 @@ class KaeCluster(object):
         self.apply(svc)
         if ing is not None:
             self.apply(ing)
+        # create HPA if neccessary
+        hpa_data = spec.service.hpa
+        if hpa_data:
+            self.create_hpa(spec.appname, hpa_data)
 
-    def deploy_app_canary(self, spec, release_tag):
+    def deploy_app_canary(self, spec, release_tag, app_cfg=None, ignore_config=False):
         """
         create Canary Deployment for specified app.
         """
         spec_copy = copy.deepcopy(spec)
+        canary_appname = make_canary_appname(spec['appname'])
 
+        if app_cfg is not None and ignore_config is False:
+            self.create_or_update_config_map(canary_appname, app_cfg.id, app_cfg.data_dict, replace=True)
         dp_annotations = {
             'spec': yaml.dump(spec_copy.to_dict()),
             'release_tag': release_tag,
@@ -516,7 +562,7 @@ class KaeCluster(object):
 
         self.networking_api.replace_namespaced_ingress(name=appname, body=ing, namespace=self.namespace)
 
-    def undeploy_app_canary(self, appname, ignore_404=False):
+    def undeploy_app_canary(self, appname):
         canary_appname = make_canary_appname(appname)
         delete_keys = [
             "{}/service-match".format(INGRESS_ANNOTATIONS_PREFIX),
@@ -543,7 +589,7 @@ class KaeCluster(object):
             # the nginx-ingress needs about 1 seconds to detect the change of the ingress
             time.sleep(1)
         except ApiException as e:
-            if not (e.status == 404 and ignore_404 is True):
+            if e.status != 404:
                 raise e
         # remove sevice
         try:
@@ -552,7 +598,7 @@ class KaeCluster(object):
                 body=client.V1DeleteOptions(propagation_policy="Foreground",
                                             grace_period_seconds=5))
         except ApiException as e:
-            if not (e.status == 404 and ignore_404 is True):
+            if e.status != 404:
                 raise e
         # remove deployment
         try:
@@ -561,19 +607,23 @@ class KaeCluster(object):
                 body=client.V1DeleteOptions(propagation_policy="Foreground",
                                             grace_period_seconds=5))
         except ApiException as e:
-            if not (e.status == 404 and ignore_404 is True):
+            if e.status != 404:
+                raise e
+        try:
+            self.delete_config_map(canary_appname)
+        except ApiException as e:
+            if e.status != 404:
                 raise e
 
     def update_app(self, appname, spec, deploy_ver, version=None, renew_id=None):
         dp_annotations = {
-            'release_tag': deploy_ver.tag,
-            'kae-deploy-info': json.dumps(deploy_ver.to_k8s_annotation()),
+            ANNO_DEPLOY_INFO: json.dumps(deploy_ver.to_k8s_annotation()),
         }
         d = self._create_deployment_dict(spec, version=version, renew_id=renew_id, annotations=dp_annotations)
         self.apps_api.replace_namespaced_deployment(name=appname, namespace=self.namespace, body=d)
 
     def undeploy_app(self, appname, apptype, ignore_404=False):
-        self.undeploy_app_canary(appname, ignore_404=True)
+        self.undeploy_app_canary(appname)
 
         # delete resource in the following order: ingress, service, hpa, deployment, secret, configmap
         if apptype == "web":
@@ -651,8 +701,8 @@ class KaeCluster(object):
                 raise e
 
     def _construct_pod_spec(self, name, volumes_root, container_spec_list,
-                            restartPolicy='Always', initial_env=None, hostAliases=None,
-                            initial_vol_mounts=None, default_work_dir=None, secret_name=None):
+                            restart_policy='Always', initial_env=None, host_aliases=None,
+                            initial_vol_mounts=None, default_work_dir=None, secret_name=None, config_name=None):
         use_dfs = False
         cluster_dfs_exists = (get_dfs_host_dir(self.cluster) is not None)
         has_configmap = False
@@ -667,8 +717,8 @@ class KaeCluster(object):
             'workingDir', 'livenessProbe', 'readinessProbe', 'ports',
         ]
 
-        if hostAliases:
-            pod_spec.hostAliases = hostAliases
+        if host_aliases:
+            pod_spec.hostAliases = host_aliases
 
         containers = []
         images = []
@@ -767,7 +817,7 @@ class KaeCluster(object):
             cfg_vol = {
                 "name": "configmap-volume",
                 "configMap": {
-                    "name": secret_name,
+                    "name": config_name,
                 }
             }
             pod_spec.volumes.append(cfg_vol)
@@ -777,23 +827,25 @@ class KaeCluster(object):
             dfs_vol = {
                 "name": "dfs-volume",
                 "hostPath": {
-                    "path": os.path.join(dfs_host_dir, "kae/apps", secret_name),
+                    "path": os.path.join(dfs_host_dir, "kae/apps", name),
                     "type": "DirectoryOrCreate",
                 }
             }
             pod_spec.volumes.append(dfs_vol)
 
         pod_spec.containers = containers
-        pod_spec.restartPolicy = restartPolicy
+        pod_spec.restartPolicy = restart_policy
         return pod_spec
 
     def _create_deployment_dict(self, spec, version=None, renew_id=None, annotations=None, canary=False):
-        # secret_name is the secret name and configmap name for this app
-        secret_name = spec.appname
         if canary:
             appname = make_canary_appname(spec['appname'])
         else:
             appname = spec.appname
+        # secret_name is the secret name and configmap name for this app
+        secret_name = spec.appname
+        config_name = appname
+
         svc = spec.service
         app_dir = os.path.join(HOST_VOLUMES_DIR, appname)
         host_kae_log_dir = os.path.join(app_dir, POD_LOG_DIR[1:])
@@ -859,7 +911,9 @@ class KaeCluster(object):
             "name": "kae-log-volumes",
             "mountPath": POD_LOG_DIR,
         }
-        pod_spec = self._construct_pod_spec(appname, app_dir, svc.containers, hostAliases=hostAliases, initial_vol_mounts=[log_mount], secret_name=secret_name)
+        pod_spec = self._construct_pod_spec(appname, app_dir, svc.containers, host_aliases=hostAliases,
+                                            initial_vol_mounts=[log_mount], secret_name=secret_name,
+                                            config_name=config_name)
         pod_spec.volumes.append(
             {
                 "name": "kae-log-volumes",

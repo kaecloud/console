@@ -29,18 +29,6 @@ def validate_git(git_url):
         raise ValidationError("git url is invalid")
 
 
-def validate_username(n):
-    from console.models.user import User
-    if not bool(User.get_by_username(n)):
-        raise ValidationError('User {} not found, needs to login first'.format(n))
-
-
-def validate_user_id(id_):
-    from console.models.user import User
-    if not bool(User.get(id_)):
-        raise ValidationError('User {} not found, needs to login first'.format(id_))
-
-
 def validate_secret_configmap_data(dd):
     for k, v in dd.items():
         if not k:
@@ -200,17 +188,6 @@ class SimpleNameSchema(StrictSchema):
     name = fields.Str(required=True)
 
 
-class UserSchema(StrictSchema):
-    username = fields.Str(validate=validate_username)
-    user_id = fields.Int(validate=validate_user_id)
-    email = fields.Email()
-
-    @validates_schema(pass_original=True)
-    def further_check(self, _, original_data):
-        if not original_data:
-            raise ValidationError('Must provide username, user_id or email, got nothing')
-
-
 class DeploySchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
     tag = fields.Str(required=True)
@@ -218,7 +195,7 @@ class DeploySchema(StrictSchema):
     # if config_id is not specified, then use current config.
     # if config_id is nengative, use the newest config
     # otherwise use the specified config
-    config_id = fields.Int()
+    use_newest_config = fields.Bool(missing=False)
     cpus = fields.Dict(validate=validate_cpu_dict)
     memories = fields.Dict(validate=validate_memory_dict)
     replicas = fields.Int()

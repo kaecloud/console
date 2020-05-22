@@ -27,7 +27,7 @@ build:
     - docker:19.03.1-dind
 
   variables:
-    DOCKER_HOST: tcp://localhost:2375
+    DOCKER_HOST: tcp://192.168.120.20:2375/
     DOCKER_DRIVER: overlay2
     DOCKER_TLS_CERTDIR: ""
 

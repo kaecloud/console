@@ -7,7 +7,6 @@ from sqlalchemy.exc import IntegrityError
 
 from console.ext import db
 from console.libs.utils import logger, get_cluster_names
-from console.libs.sso import SSO
 from console.models.base import BaseModelMixin
 
 
@@ -77,33 +76,37 @@ role_app_association = db.Table('role_app_association',
 )
 
 
-def check_rbac(actions, app=None, cluster=None):
+def check_rbac(actions, app=None, cluster=None, user=None):
     """
     check if a user has the permission, cluster is optional argument,
 
     :param actions:
     :param app: if set to None, then this function will not check app
     :param cluster: if set to None, then this function will not check cluster
+    :param user:
     :return:
     """
-    username = g.user["username"]
-    roles = get_roles_by_user(username)
+    if user is None:
+        user = g.user
+    roles = get_roles_by_user(user)
+    logger.debug(f"roles: {roles}, user: {user}")
     if not roles:
         return False
     for role in roles:
         # kae admin can do anything
         if RBACAction.KAE_ADMIN in role.action_list:
             return True
-
-        if role.app_list and app:
-            if app.name not in role.app_names:
-                continue
-
+        # check cluster
         if cluster and role.cluster_list and (cluster not in role.cluster_list):
             continue
+        # check app
+        if app is not None:
+            if len(role.app_names) > 0 and app.name not in role.app_names:
+                continue
+            # app admin can do anything on specified app
+            if RBACAction.ADMIN in role.action_list:
+                return True
 
-        if RBACAction.ADMIN in role.action_list:
-            return True
         if len(set(actions) - set(role.action_list)) == 0:
             return True
     return False
@@ -141,12 +144,13 @@ def str2actions(ss):
     return actions
 
 
-def get_roles_by_user(username):
-    groups = SSO.instance().get_groups_by_user(username)
-
-    if not groups:
-        return []
+def get_roles_by_user(u):
+    username = u['username']
     roles = UserRoleBinding.get_roles_by_name(username)
+
+    groups = u.get_groups()
+    if not groups:
+        return roles
     for group in groups:
         roles += GroupRoleBinding.get_roles_by_id(group["id"])
     return roles
@@ -155,6 +159,7 @@ def get_roles_by_user(username):
 class Role(BaseModelMixin):
     __tablename__ = "role"
     name = db.Column(db.CHAR(64), nullable=False, unique=True)
+    # if apps is empty, it means all app
     apps = db.relationship('App', secondary=role_app_association,
                            backref=db.backref('roles', lazy='dynamic'), lazy='dynamic')
 

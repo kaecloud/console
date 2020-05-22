@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 import pytest
 import subprocess
 import threading
@@ -8,6 +7,10 @@ from urllib.parse import urlparse
 from .prepare import (
     default_appname, default_git
 )
+# mock SSO here
+import console.libs.sso
+console.libs.sso.SSO = console.libs.sso.SSOMocker
+
 from console.app import create_app
 from console.config import FAKE_USER
 from console.ext import db, rds

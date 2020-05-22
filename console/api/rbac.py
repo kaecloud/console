@@ -19,8 +19,7 @@ def list_roles():
     """
     List all roles
     """
-    username = g.user['username']
-    roles = get_roles_by_user(username)
+    roles = get_roles_by_user(g.user)
     return jsonify([r.to_dict() for r in roles])
 
 

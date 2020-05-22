@@ -42,6 +42,15 @@ service:
   - port: 80           # service port (required)
     targetPort: 8080   # container port, equal to port if not specified
     protocol: TCP      # TCP and UDP are allowed, default is TCP
+  hpa:                 # HPA
+    minReplicas: 1
+    maxReplicas: 5
+    metrics:
+      - name: cpu               # cpu or memory
+        # only one of averageUtilization, averageValue and value can be specified
+        averageUtilization: 50
+        averageValue: "xxx"
+        value: "xx"
 
   minReadySeconds: 0
   progressDeadlineSeconds: 600

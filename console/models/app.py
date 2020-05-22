@@ -273,6 +273,7 @@ class DeployVersion(BaseModelMixin):
     tag = db.Column(db.CHAR(64), nullable=False, index=True)
     app_id = db.Column(db.Integer, nullable=False)
     parent_id = db.Column(db.Integer, nullable=False)
+    cluster = db.Column(db.CHAR(64), nullable=False)
     config_id = db.Column(db.Integer)
     specs_text = db.Column(db.Text)
 
@@ -280,7 +281,7 @@ class DeployVersion(BaseModelMixin):
         return 'DeployVersion <{r.appname}:{r.tag}:{r.id}>'.format(r=self)
 
     @classmethod
-    def create(cls, app, tag, specs_text, parent_id, config_id=None):
+    def create(cls, app, tag, specs_text, parent_id, cluster, config_id=None):
         """app must be an App instance"""
         if isinstance(specs_text, Dict):
             specs_text = yaml.dump(specs_text.to_dict())
@@ -291,7 +292,7 @@ class DeployVersion(BaseModelMixin):
             app_specs_schema.load(yaml.load(specs_text))
 
         try:
-            ver = cls(tag=tag, app_id=app.id, parent_id=parent_id, config_id=config_id, specs_text=specs_text)
+            ver = cls(tag=tag, app_id=app.id, parent_id=parent_id, cluster=cluster, config_id=config_id, specs_text=specs_text)
             db.session.add(ver)
             db.session.commit()
         except IntegrityError:
@@ -365,6 +366,7 @@ class DeployVersion(BaseModelMixin):
 
 class AppConfig(BaseModelMixin):
     app_id = db.Column(db.Integer, nullable=False)
+    cluster = db.Column(db.CHAR(64), nullable=False)
     content = db.Column(db.Text)
     comment = db.Column(db.Text)
 
@@ -372,14 +374,14 @@ class AppConfig(BaseModelMixin):
         return '<{r.appname}:{r.name}>'.format(r=self)
 
     @classmethod
-    def create(cls, app, content, comment=''):
+    def create(cls, app, cluster, content, comment=''):
         """app must be an App instance"""
         appname = app.name
         if isinstance(content, dict):
             content = json.dumps(content)
 
         try:
-            new_cfg = cls(app_id=app.id, content=content, comment=comment)
+            new_cfg = cls(app_id=app.id, cluster=cluster, content=content, comment=comment)
             db.session.add(new_cfg)
             db.session.commit()
         except IntegrityError:
@@ -390,14 +392,14 @@ class AppConfig(BaseModelMixin):
         return new_cfg
 
     @classmethod
-    def get_by_app(cls, app, start=0, limit=10):
-        q = cls.query.filter_by(app_id=app.id).order_by(cls.id.desc())
+    def get_by_app_and_cluster(cls, app, cluster, start=0, limit=10):
+        q = cls.query.filter_by(app_id=app.id, cluster=cluster).order_by(cls.id.desc())
         return q[start:start + limit]
 
     @classmethod
-    def get_newest_config(cls, app):
-        q = cls.query.filter_by(app_id=app.id).order_by(cls.id.desc())
-        return q[0] if len(q) > 0 else None
+    def get_newest_config(cls, app, cluster):
+        q = cls.query.filter_by(app_id=app.id, cluster=cluster).order_by(cls.id.desc())
+        return q.first()
 
     @property
     def app(self):

@@ -24,6 +24,7 @@ class OPType(enum.Enum):
     DELETE_APP = "delete_app"
     ROLLBACK_APP = "rollback_app"
     RENEW_APP = "renew_app"
+    UPDATE_CONFIG = "update_config"
 
 
 class OPLog(BaseModelMixin):

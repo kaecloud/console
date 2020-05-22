@@ -14,7 +14,7 @@ from console.libs.sso import SSO
 
 def get_current_user(require_token=False, scopes_required=None):
     user = None
-    logger.debug(f"request headers: {request.headers}")
+    # logger.debug(f"request headers: {request.headers}")
     auth = request.authorization
     # token authentication
     token = None
@@ -106,7 +106,7 @@ class User(Dict):
     def list_app(self, start=0, limit=500):
         from console.models.rbac import RBACAction, get_roles_by_user
         from console.models.app import App
-        roles = get_roles_by_user(self.username)
+        roles = get_roles_by_user(self)
         apps = []
         logger.debug(f"role list(user: {self.username}) {roles}")
         for role in roles:

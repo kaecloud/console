@@ -9,6 +9,7 @@ import shutil
 import logging
 import urllib.request
 import smtplib
+import threading
 from smtplib import SMTPException
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -30,6 +31,13 @@ from console.libs.jsonutils import VersatileEncoder
 
 
 logger = logging.getLogger(LOGGER_NAME)
+
+
+def spawn(target, *args, **kw):
+    t = threading.Thread(target=target, name=target.__name__, args=args, kwargs=kw)
+    t.daemon = True
+    t.start()
+    return t
 
 
 def with_appcontext(f):

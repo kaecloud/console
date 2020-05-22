@@ -1,23 +1,15 @@
 # -*- coding: utf-8 -*-
 import json
 import argparse
-import threading
 from urllib3.exceptions import ProtocolError
 
 # must import celery before import tasks
 from console.app import celery
 from console.libs.utils import logger
 from console.libs.k8s import KubeApi
-from console.libs.utils import make_app_watcher_channel_name, get_cluster_names
+from console.libs.utils import spawn, make_app_watcher_channel_name, get_cluster_names
 from console.libs.jsonutils import VersatileEncoder
 from console.ext import rds
-
-
-def spawn(target, *args, **kw):
-    t = threading.Thread(target=target, name=target.__name__, args=args, kwargs=kw)
-    t.daemon = True
-    t.start()
-    return t
 
 
 class LongRunningWatcher(object):

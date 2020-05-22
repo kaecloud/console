@@ -10,26 +10,6 @@ from .prepare import (
 )
 
 
-def create_normal_user():
-    data = {
-        'username': 'sheldon',
-        'nickname': 'Sheldon Lee Cooper',
-        'email': 'sheldon@sheldon.com',
-        'privileged': 0,
-    }
-    return User.create(**data)
-
-
-def create_privileged_user():
-    data = {
-        'username': 'root',
-        'nickname': 'Sheldon Lee Cooper',
-        'email': 'sheldon@sheldon.com',
-        'privileged': 1,
-    }
-    return User.create(**data)
-
-
 def test_app(test_db):
     App.get_or_create(default_appname, git=default_git, apptype="web")
     app = App.get_by_name(default_appname)
@@ -47,13 +27,13 @@ def test_release(test_db):
 
 def test_oplog(test_db):
     create_at = datetime.now() - timedelta(seconds=1)
-    OPLog.create(user_id=FAKE_USER['id'],
+    OPLog.create(username=FAKE_USER['username'],
                  app_id=1,
                  appname=default_appname,
                  action=OPType.SCALE_APP,
                  content="{'foo': 'bar'}")
 
-    OPLog.create(user_id=FAKE_USER['id'],
+    OPLog.create(username=FAKE_USER['username'],
                  app_id=1,
                  appname=default_appname,
                  action=OPType.DELETE_APP,
