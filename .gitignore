@@ -8,7 +8,6 @@ test.ipynb
 local_config.*
 __pycache__
 .ropeproject
-migrations
 src
 .cache
 _book
