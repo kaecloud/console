@@ -27,7 +27,7 @@ from console.libs.utils import (
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
 from console.models import (
     App, Release, DeployVersion, User, OPLog, OPType, AppYaml, AppConfig,
-    RBACAction, check_rbac, prepare_roles_for_new_app,
+    RBACAction, check_rbac, prepare_roles_for_new_app, delete_roles_relate_to_app,
 )
 from console.libs.k8s import KubeApi, KubeError, ANNO_DEPLOY_INFO, ANNO_CONFIG_ID
 from console.libs.k8s import ApiException
@@ -427,6 +427,8 @@ def delete_app(appname):
     with lock_app(appname):
         with handle_k8s_error("Error when delete app {}".format(appname)):
             KubeApi.instance().undeploy_app(appname, app.type, ignore_404=True, cluster_name=KubeApi.ALL_CLUSTER)
+
+    delete_roles_relate_to_app(app)
     app.delete()
 
     OPLog.create(

@@ -132,6 +132,17 @@ def prepare_roles_for_new_app(app, user):
     db.session.commit()
 
 
+def delete_roles_relate_to_app(app):
+    app_reader_name, app_writer_name, app_admin_name = f"app-{app.name}-reader", f"app-{app.name}-writer", f"app-{app.name}-admin"
+    app_reader = Role.get_by_name(app_reader_name)
+    app_writer = Role.get_by_name(app_writer_name)
+    app_admin = Role.get_by_name(app_admin_name)
+    db.session.delete(app_reader)
+    db.session.delete(app_writer)
+    db.session.delete(app_admin)
+    db.session.commit()
+
+
 def str2action(ss):
     return getattr(RBACAction, ss.upper())
 
@@ -171,8 +182,8 @@ class Role(BaseModelMixin):
     # if clusters is an empty list, it mains allows all clusters
     clusters = db.Column(db.Text)
 
-    users = db.relationship('UserRoleBinding', backref='role', lazy='dynamic')
-    groups = db.relationship('GroupRoleBinding', backref='role', lazy='dynamic')
+    users = db.relationship('UserRoleBinding', cascade="all,delete", backref='role', lazy='dynamic')
+    groups = db.relationship('GroupRoleBinding', cascade="all,delete", backref='role', lazy='dynamic')
 
     def __str__(self):
         return self.name
@@ -249,7 +260,7 @@ class UserRoleBinding(BaseModelMixin):
         db.UniqueConstraint('username', 'role_id', name='unique_user_role'),
     )
     username = db.Column(db.CHAR(128), nullable=False)
-    role_id = db.Column(db.Integer, db.ForeignKey('role.id'), nullable=False)
+    role_id = db.Column(db.Integer, db.ForeignKey('role.id', ondelete='CASCADE'), nullable=False)
 
     @classmethod
     def create(cls, username, role):
@@ -273,7 +284,7 @@ class GroupRoleBinding(BaseModelMixin):
         db.UniqueConstraint('group_id', 'role_id', name='unique_group_role'),
     )
     group_id = db.Column(db.CHAR(128), nullable=False)
-    role_id = db.Column(db.Integer, db.ForeignKey('role.id'), nullable=False)
+    role_id = db.Column(db.Integer, db.ForeignKey('role.id', ondelete='CASCADE'), nullable=False)
 
     def __str__(self):
         return "GroupRoleBinding: {} -> {}".format(self.group_id, self.role.name)
