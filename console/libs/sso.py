@@ -2,13 +2,38 @@ import copy
 import time
 from urllib.parse import urlparse
 from keycloak import KeycloakOpenID, KeycloakAdmin
-from console.libs.utils import spawn
+from keycloak.exceptions import KeycloakError
+from console.libs.utils import spawn, logger
 from console.config import (
     SSO_HOST, KEYCLOAK_ADMIN_USER, KEYCLOAK_ADMIN_PASSWD,
     SSO_REALM, FAKE_USER,
 )
 
 REFRESH_INTERVAL = 300
+
+
+class AdminWrapper(object):
+    def __init__(self, *args, **kwargs):
+        self._args = args
+        self._kwargs = kwargs
+        self.keycloak_admin = KeycloakAdmin(*args, **kwargs)
+
+    def __getattr__(self, item):
+        obj = getattr(self.keycloak_admin, item)
+        if not callable(obj):
+            return obj
+
+        def wrapper(*args, **kwargs):
+            nonlocal obj
+            try:
+                return obj(*args, **kwargs)
+            except KeycloakError:
+                # retry
+                logger.debug("got keycloak error, retry.")
+                self.keycloak_admin = KeycloakAdmin(*self._args, **self._kwargs)
+                obj = getattr(self.keycloak_admin, item)
+                return obj(*args, **kwargs)
+        return wrapper
 
 
 class SSO(object):
@@ -21,13 +46,13 @@ class SSO(object):
             url = f'https://{host_or_url}/auth/'
         else:
             url = host_or_url    
-        self._admin = KeycloakAdmin(server_url=url,
-                                    username=admin_user,
-                                    password=admin_passwd,
-                                    user_realm_name=admin_realm,
-                                    realm_name=realm,
-                                    verify=True,
-                                    auto_refresh_token=['get', 'put', 'post', 'delete'])
+        self._admin = AdminWrapper(server_url=url,
+                                   username=admin_user,
+                                   password=admin_passwd,
+                                   user_realm_name=admin_realm,
+                                   realm_name=realm,
+                                   verify=True,
+                                   auto_refresh_token=['get', 'put', 'post', 'delete'])
         self.refresh()
 
     @classmethod
