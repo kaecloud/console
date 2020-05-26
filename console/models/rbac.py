@@ -137,9 +137,18 @@ def delete_roles_relate_to_app(app):
     app_reader = Role.get_by_name(app_reader_name)
     app_writer = Role.get_by_name(app_writer_name)
     app_admin = Role.get_by_name(app_admin_name)
-    db.session.delete(app_reader)
-    db.session.delete(app_writer)
-    db.session.delete(app_admin)
+    if app_reader is None:
+        logger.warn(f"role {app_reader_name} doesn't exist, ignore it")
+    else:
+        db.session.delete(app_reader)
+    if app_writer is None:
+        logger.warn(f"role {app_writer_name} doesn't exist, ignore it")
+    else:
+        db.session.delete(app_writer)
+    if app_admin is None:
+        logger.warn(f"role {app_admin_name} doesn't exist, ignore it")
+    else:
+        db.session.delete(app_admin)
     db.session.commit()
 
 
