@@ -1,3 +1,4 @@
+import threading
 import copy
 import time
 from urllib.parse import urlparse
@@ -53,7 +54,9 @@ class SSO(object):
                                    realm_name=realm,
                                    verify=True,
                                    auto_refresh_token=['get', 'put', 'post', 'delete'])
-        self.refresh()
+        self.user_map, self.group_map = {}, {}
+        self.lck = threading.Lock()
+        spawn(self._refresh_thread_func)
 
     @classmethod
     def instance(cls, host=SSO_HOST, admin_user=KEYCLOAK_ADMIN_USER, admin_passwd=KEYCLOAK_ADMIN_PASSWD, realm=SSO_REALM):
@@ -61,31 +64,33 @@ class SSO(object):
             cls._INSTANCE = SSO(host, admin_user, admin_passwd, realm)
         return cls._INSTANCE
 
-    def get_groups(self):
-        self._refresh_if_needed()
-        return self.group_map.values()
-
-    def _refresh_if_needed(self):
-        if time.time() - self._last_refresh_ts > REFRESH_INTERVAL:
-            self.refresh()
+    def _refresh_thread_func(self, *args, **kwargs):
+        logger.info("starting sso refresher thread")
+        while True:
+            logger.debug("refresh sso cache.")
+            try:
+                self.refresh()
+            except Exception:
+                logger.exception("error when refresh sso, retry...")
+            time.sleep(REFRESH_INTERVAL)
 
     def _fetch_all_user_group(self):
-        self.group_map = {}
-        self.user_map = {}
+        group_map = {}
+        user_map = {}
 
         def handle_group(grp):
             sub_groups = grp.pop('subGroups', None)
-            self.group_map[grp['id']] = grp
+            group_map[grp['id']] = grp
             members = self._admin.get_group_members(grp['id'])
             for mem in members:
                 username = mem['username']
                 try:
-                    exist_user = self.user_map[username]
+                    exist_user = user_map[username]
                 except KeyError:
                     mem['group_ids'] = []
                     exist_user = mem
                 exist_user['group_ids'].append(grp['id'])
-                self.user_map[username] = exist_user
+                user_map[username] = exist_user
 
             if sub_groups is not None:
                 for grp in sub_groups:
@@ -94,44 +99,47 @@ class SSO(object):
         users = self._admin.get_users()
         for u in users:
             u['group_ids'] = []
-            self.user_map[u['username']] = u
+            user_map[u['username']] = u
         groups = self._admin.get_groups()
         if groups is not None:
             for grp in groups:
                 handle_group(grp)
-        # print(self.user_map)
-        # print("++++++++++++++++")
-        # print(self.group_map)
+        return user_map, group_map
+
+    def get_groups(self):
+        with self.lck:
+            return self.group_map.values()
 
     def get_group(self, group_id):
-        self._refresh_if_needed()
-        return self.group_map.get(group_id)
+        with self.lck:
+            return self.group_map.get(group_id)
 
     def get_group_by_name(self, name):
-        self._refresh_if_needed()
-        for grp in self.group_map.values():
-            if grp['name'] == name:
-                return grp
+        with self.lck:
+            for grp in self.group_map.values():
+                if grp['name'] == name:
+                    return grp
 
     def get_groups_by_user(self, username):
-        self._refresh_if_needed()
-        user = self.user_map.get(username)
-        if user is None:
-            return None
-        group_ids = user['group_ids']
-        return [self.group_map[g_id] for g_id in group_ids]
+        with self.lck:
+            user = self.user_map.get(username)
+            if user is None:
+                return None
+            group_ids = user['group_ids']
+            return [self.group_map[g_id] for g_id in group_ids]
 
     def get_user(self, username):
-        self._refresh_if_needed()
-        return self.user_map.get(username)
+        with self.lck:
+            return self.user_map.get(username)
 
     def get_users(self):
-        self._refresh_if_needed()
-        return self.user_map.values()
+        with self.lck:
+            return self.user_map.values()
 
     def refresh(self):
-        self._fetch_all_user_group()
-        self._last_refresh_ts = time.time()
+        user_map, group_map = self._fetch_all_user_group()
+        with self.lck:
+            self.user_map, self.group_map = user_map, group_map
 
 
 class SSOMocker(object):
