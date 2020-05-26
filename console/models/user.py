@@ -107,16 +107,21 @@ class User(Dict):
         from console.models.rbac import RBACAction, get_roles_by_user
         from console.models.app import App
         roles = get_roles_by_user(self)
+        seen_app_names = set()
         apps = []
         logger.debug(f"role list(user: {self.username}) {roles}")
         for role in roles:
             if RBACAction.KAE_ADMIN in role.action_list:
                 apps = App.get_all()
                 break
-            if RBACAction.ADMIN in role.action_list:
-                return role.app_list[start: start+limit]
-            if RBACAction.GET in role.action_list:
-                apps += role.app_list
+            if RBACAction.ADMIN in role.action_list or RBACAction.GET in role.action_list:
+                # remove duplicate
+                for app in role.app_list:
+                    if app.name not in seen_app_names:
+                        apps.append(app)
+                        seen_app_names.add(app.name)
+        # sort
+        apps = sorted(apps, key=lambda app: app.name)
         return apps[start: start+limit]
 
     @property
