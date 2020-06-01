@@ -260,7 +260,7 @@ def create_app(args):
     git = args['git']
     type = args['type']
 
-    app = App.get_or_create(appname, git, type)
+    app = App.get_or_create(appname, git, type, [g.user])
     if not app:
         abort(400, 'Error during create an app (%s, %s, %s)' % (appname, git, type))
     return app
@@ -1130,7 +1130,7 @@ def register_release(args):
     # because some defaults may have added to specs, so we need update specs_text
     new_specs_text = yaml.dump(specs.to_dict())
 
-    app = App.get_or_create(appname, git, specs.type)
+    app = App.get_or_create(appname, git, specs.type, [g.user])
     if not app:
         abort(400, 'Error during create an app (%s, %s, %s)' % (appname, git, tag))
     if app.type != specs.type:

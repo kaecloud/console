@@ -3,7 +3,6 @@
 import json
 import yaml
 from addict import Dict
-from flask import g
 from sqlalchemy import event, DDL
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
@@ -21,18 +20,20 @@ class App(BaseModelMixin):
     git = db.Column(db.String(255), nullable=False)
     type = db.Column(db.CHAR(64), nullable=False)
     rank = db.Column(db.Integer, default=0)
-    subscribers = db.Text()
+    subscribers = db.Column(db.Text())
 
     def __str__(self):
         return self.name
 
     @classmethod
-    def get_or_create(cls, name, git, apptype):
+    def get_or_create(cls, name, git, apptype, subscribers=None):
         app = cls.get_by_name(name)
         if app:
             return app
-
-        app = cls(name=name, git=git, type=apptype, subscribers=json.dumps([g.user.username]))
+        subscriber_names = None
+        if subscribers is not None:
+            subscriber_names = json.dumps([u.username for u in subscribers])
+        app = cls(name=name, git=git, type=apptype, subscribers=subscriber_names)
         db.session.add(app)
         db.session.commit()
         return app

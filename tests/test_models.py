@@ -11,9 +11,13 @@ from .prepare import (
 
 
 def test_app(test_db):
-    App.get_or_create(default_appname, git=default_git, apptype="web")
+    u = User.get_by_username(FAKE_USER['username'])
+    assert u is not None
+    App.get_or_create(default_appname, git=default_git, apptype="web", subscribers=[u])
     app = App.get_by_name(default_appname)
     assert app.name == default_appname
+    assert len(app.subscriber_list) == 1
+    assert app.subscriber_list[0].username == FAKE_USER['username']
 
     app.delete()
     app = App.get_by_name(default_appname)

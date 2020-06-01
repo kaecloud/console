@@ -162,9 +162,10 @@ class SSOMocker(object):
 
     def _fetch_all_user_group(self):
         userinfo = copy.deepcopy(FAKE_USER)
+        userinfo["group_ids"] = []
         self.group_map = {}
         self.user_map = {
-            FAKE_USER["username"]: FAKE_USER,
+            FAKE_USER["username"]: userinfo,
         }
 
     def get_group(self, group_id):
