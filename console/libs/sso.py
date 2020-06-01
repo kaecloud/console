@@ -56,6 +56,9 @@ class SSO(object):
                                    auto_refresh_token=['get', 'put', 'post', 'delete'])
         self.user_map, self.group_map = {}, {}
         self.lck = threading.Lock()
+        # refresh first
+        self.refresh()
+
         spawn(self._refresh_thread_func)
 
     @classmethod

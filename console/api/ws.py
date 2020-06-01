@@ -355,8 +355,9 @@ def build_app(socket, appname):
 </div>'''
                 email_text = email_text_tpl.format(text_title, html.escape("\n".join(total_msg)) + '\n' + build_result_text)
                 # TODO better way to get users to send email
-                # email_list = [u.email for u in app.users]
-                # send_email(email_list, subject, email_text)
+                email_list = [u.email for u in app.subscriber_list]
+                if len(email_list) > 0:
+                    send_email(email_list, subject, email_text)
                 bearychat_sendmsg(BEARYCHAT_CHANNEL, bearychat_msg)
         else:
             socket.send(make_msg("Unknown", msg="there seems exist another build task, try to fetch output", jsonize=True))

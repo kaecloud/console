@@ -192,9 +192,7 @@ class DeploySchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
     tag = fields.Str(required=True)
     app_yaml_name = fields.Str(missing='default')
-    # if config_id is not specified, then use current config.
-    # if config_id is nengative, use the newest config
-    # otherwise use the specified config
+    # deploy the newest config
     use_newest_config = fields.Bool(missing=False)
     cpus = fields.Dict(validate=validate_cpu_dict)
     memories = fields.Dict(validate=validate_memory_dict)

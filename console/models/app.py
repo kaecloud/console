@@ -3,6 +3,7 @@
 import json
 import yaml
 from addict import Dict
+from flask import g
 from sqlalchemy import event, DDL
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
@@ -20,6 +21,7 @@ class App(BaseModelMixin):
     git = db.Column(db.String(255), nullable=False)
     type = db.Column(db.CHAR(64), nullable=False)
     rank = db.Column(db.Integer, default=0)
+    subscribers = db.Text()
 
     def __str__(self):
         return self.name
@@ -30,7 +32,7 @@ class App(BaseModelMixin):
         if app:
             return app
 
-        app = cls(name=name, git=git, type=apptype)
+        app = cls(name=name, git=git, type=apptype, subscribers=json.dumps([g.user.username]))
         db.session.add(app)
         db.session.commit()
         return app
@@ -57,9 +59,22 @@ class App(BaseModelMixin):
         return r and r.specs
 
     @property
-    def subscribers(self):
-        specs = self.specs
-        return specs and specs.subscribers
+    def subscriber_list(self):
+        if not self.subscribers:
+            return []
+        try:
+            username_list = json.loads(self.subscribers)
+        except json.JSONDecodeError as e:
+            logger.exception(f"subscribers of app {self.name} is invalid({self.subscribers})")
+            return []
+
+        from console.models.user import User
+        users = []
+        for username in username_list:
+            user = User.get_by_username(username)
+            if user is not None:
+                users.append(user)
+        return users
 
     def delete(self):
         """
