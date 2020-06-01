@@ -92,7 +92,7 @@ class KubeApi(object):
                     api_client=config.new_client_from_config(context=ctx))
                 api_map['apps_v1_api'] = client.AppsV1Api(
                     api_client=config.new_client_from_config(context=ctx))
-                api_map['networking_v1beta1_api'] = client.NetworkingV1beta1Api(
+                api_map['extensions_v1beta1_api'] = client.ExtensionsV1beta1Api(
                     api_client=config.new_client_from_config(context=ctx))
                 api_map['scale_v2beta2_api'] = client.AutoscalingV2beta2Api(
                     api_client=config.new_client_from_config(context=ctx))
@@ -102,7 +102,7 @@ class KubeApi(object):
             api_map = {
                 'core_v1_api': client.CoreV1Api(),
                 'apps_v1_api': client.AppsV1Api(),
-                'networking_v1beta1_api': client.NetworkingV1beta1Api(),
+                'extensions_v1beta1_api': client.ExtensionsV1beta1Api(),
                 'scale_v2beta2_api': client.AutoscalingV2beta2Api(),
             }
             self.k8s_api_map['incluster'] = api_map
@@ -162,8 +162,8 @@ class KaeCluster(object):
         return self.api_map["scale_v2beta2_api"]
 
     @property
-    def networking_api(self):
-        return self.api_map['networking_v1beta1_api']
+    def extensions_api(self):
+        return self.api_map['extensions_v1beta1_api']
 
     def get_pods(self, label_selector):
         return self.core_api.list_namespaced_pod(namespace=self.namespace, label_selector=label_selector)
@@ -404,10 +404,10 @@ class KaeCluster(object):
             self.create_or_update_service(d)
         elif kind == "Ingress":
             try:
-                self.networking_api.replace_namespaced_ingress(name=name, body=d, namespace=self.namespace)
+                self.extensions_api.replace_namespaced_ingress(name=name, body=d, namespace=self.namespace)
             except ApiException as e:
                 if e.status == 404:
-                    self.networking_api.create_namespaced_ingress(body=d, namespace=self.namespace)
+                    self.extensions_api.create_namespaced_ingress(body=d, namespace=self.namespace)
                 else:
                     raise e
 
@@ -504,7 +504,7 @@ class KaeCluster(object):
         ]
         canary_appname = make_canary_appname(appname)
         annotations_key = "{}/service-match".format(INGRESS_ANNOTATIONS_PREFIX)
-        ing = self.networking_api.read_namespaced_ingress(appname, namespace=self.namespace)
+        ing = self.extensions_api.read_namespaced_ingress(appname, namespace=self.namespace)
         # data = {
         #     "backend": {
         #         "service": canary_appname,
@@ -524,11 +524,11 @@ class KaeCluster(object):
         # add backend if needed
         ing = self.add_canary_backend(appname, ing)
 
-        self.networking_api.replace_namespaced_ingress(name=appname, body=ing, namespace=self.namespace)
+        self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=self.namespace)
 
     def get_abtesting_rules(self, appname):
         annotations_key = "{}/service-match".format(INGRESS_ANNOTATIONS_PREFIX)
-        ing = self.networking_api.read_namespaced_ingress(appname, namespace=self.namespace)
+        ing = self.extensions_api.read_namespaced_ingress(appname, namespace=self.namespace)
         annotations = ing.metadata.annotations if ing.metadata.annotations else {}
         full_rules_str = annotations.get(annotations_key, None)
         if full_rules_str is None:
@@ -549,7 +549,7 @@ class KaeCluster(object):
         # <new-svc-name>:<new-svc-weight>, <old-svc-name>:<old-svc-weight>
         ngx_annotations_val = "{}:{}, {}:{}\n".format(canary_appname, weight, appname, 100-weight)
 
-        ing = self.networking_api.read_namespaced_ingress(appname, namespace=self.namespace)
+        ing = self.extensions_api.read_namespaced_ingress(appname, namespace=self.namespace)
         annotations = ing.metadata.annotations if ing.metadata.annotations else {}
         annotations[annotations_key] = annotations_val
         annotations[ngx_annotations_key] = ngx_annotations_val
@@ -560,7 +560,7 @@ class KaeCluster(object):
         # add canary backend if needed
         ing = self.add_canary_backend(appname, ing)
 
-        self.networking_api.replace_namespaced_ingress(name=appname, body=ing, namespace=self.namespace)
+        self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=self.namespace)
 
     def undeploy_app_canary(self, appname):
         canary_appname = make_canary_appname(appname)
@@ -571,7 +571,7 @@ class KaeCluster(object):
         ]
         # remove abtesting rules
         try:
-            ing = self.networking_api.read_namespaced_ingress(appname, namespace=self.namespace)
+            ing = self.extensions_api.read_namespaced_ingress(appname, namespace=self.namespace)
 
             annotations = ing.metadata.annotations if ing.metadata.annotations else {}
             for k in delete_keys:
@@ -585,7 +585,7 @@ class KaeCluster(object):
                 for path in need_delete:
                     rule.http.paths.remove(path)
 
-            self.networking_api.replace_namespaced_ingress(name=appname, body=ing, namespace=self.namespace)
+            self.extensions_api.replace_namespaced_ingress(name=appname, body=ing, namespace=self.namespace)
             # the nginx-ingress needs about 1 seconds to detect the change of the ingress
             time.sleep(1)
         except ApiException as e:
@@ -628,7 +628,7 @@ class KaeCluster(object):
         # delete resource in the following order: ingress, service, hpa, deployment, secret, configmap
         if apptype == "web":
             try:
-                self.networking_api.delete_namespaced_ingress(
+                self.extensions_api.delete_namespaced_ingress(
                     name=appname, namespace=self.namespace,
                     body=client.V1DeleteOptions(propagation_policy="Foreground",
                                                 grace_period_seconds=5))
@@ -693,7 +693,7 @@ class KaeCluster(object):
         :return:
         """
         try:
-            return self.networking_api.read_namespaced_ingress(name=name, namespace=self.namespace)
+            return self.extensions_api.read_namespaced_ingress(name=name, namespace=self.namespace)
         except ApiException as e:
             if e.status == 404 and ignore_404 is True:
                 return None
@@ -962,7 +962,7 @@ class KaeCluster(object):
         svc = spec.service
 
         obj = Dict({
-            'apiVersion': 'networking.k8s.io/v1beta1',
+            'apiVersion': 'extensions/v1beta1',
             'kind': 'Ingress',
             'metadata': {
                 'name': appname,
