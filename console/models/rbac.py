@@ -32,46 +32,8 @@ class RBACAction(enum.Enum):
     KAE_ADMIN = "kae_admin"
 
 
-_all_action_list = [
-    RBACAction.GET,
-    RBACAction.UPDATE,
-    RBACAction.CREATE,
-    RBACAction.DELETE,
-    RBACAction.BUILD,
-    RBACAction.GET_CONFIG,
-    RBACAction.UPDATE_CONFIG,
-    RBACAction.GET_SECRET,
-    RBACAction.UPDATE_SECRET,
-    RBACAction.DEPLOY,
-    RBACAction.UNDEPLOY,
-    RBACAction.RENEW,
-    RBACAction.ROLLBACK,
-    RBACAction.SCALE,
-    RBACAction.STOP_CONTAINER,
-    RBACAction.ENTER_CONTAINER,
-
-    RBACAction.ADMIN,  # app admin
-    RBACAction.KAE_ADMIN, # kae admin, can do anything
-]
-
-_writer_action_list = [
-    RBACAction.GET,
-    RBACAction.UPDATE,
-    RBACAction.CREATE,
-    RBACAction.DELETE,
-    RBACAction.BUILD,
-    RBACAction.GET_CONFIG,
-    RBACAction.UPDATE_CONFIG,
-    RBACAction.GET_SECRET,
-    RBACAction.UPDATE_SECRET,
-    RBACAction.DEPLOY,
-    RBACAction.UNDEPLOY,
-    RBACAction.RENEW,
-    RBACAction.ROLLBACK,
-    RBACAction.SCALE,
-    RBACAction.STOP_CONTAINER,
-    RBACAction.ENTER_CONTAINER,
-]
+_all_action_list = list(RBACAction)
+_writer_action_list = _all_action_list[:-2]
 
 role_app_association = db.Table('role_app_association',
     db.Column('role_id', db.Integer, db.ForeignKey('role.id'), primary_key=True),
