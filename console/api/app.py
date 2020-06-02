@@ -1003,7 +1003,7 @@ def create_app_yaml(args, appname):
         return abort(400, 'specs text is invalid {}'.format(str(e)))
 
     # check if the user can access the App
-    app = get_app_raw(appname, RBACAction.UPDATE)
+    app = get_app_raw(appname, [RBACAction.UPDATE])
     app_yaml = AppYaml.get_by_app_and_name(app, name)
     if not app_yaml:
         AppYaml.create(name, app, specs_text, comment)
@@ -1227,9 +1227,7 @@ def scale_app(args, appname):
           error: "xxx"
     """
     cluster = args['cluster']
-    app = App.get_by_name(appname)
-    if not app:
-        abort(404, 'app {} not found'.format(appname))
+    app = get_app_raw(appname, [RBACAction.SCALE], cluster)
 
     with lock_app(appname):
         with handle_k8s_error("Error when get deployment"):

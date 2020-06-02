@@ -24,6 +24,7 @@ class RBACAction(enum.Enum):
     UNDEPLOY = "undeploy"
     RENEW = "renew"
     ROLLBACK = "rollback"
+    SCALE = "scale"
     STOP_CONTAINER = "stop_container"
     ENTER_CONTAINER = "enter_container"
 
@@ -45,6 +46,7 @@ _all_action_list = [
     RBACAction.UNDEPLOY,
     RBACAction.RENEW,
     RBACAction.ROLLBACK,
+    RBACAction.SCALE,
     RBACAction.STOP_CONTAINER,
     RBACAction.ENTER_CONTAINER,
 
@@ -66,6 +68,7 @@ _writer_action_list = [
     RBACAction.UNDEPLOY,
     RBACAction.RENEW,
     RBACAction.ROLLBACK,
+    RBACAction.SCALE,
     RBACAction.STOP_CONTAINER,
     RBACAction.ENTER_CONTAINER,
 ]

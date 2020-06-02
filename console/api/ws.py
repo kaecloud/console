@@ -100,7 +100,7 @@ def get_app_pods_events(socket, appname):
         socket.send(make_errmsg('app {} not found'.format(appname), jsonize=True))
         return
 
-    if not check_rbac([RBACAction.GET, ], app):
+    if not check_rbac([RBACAction.GET, ], app, cluster):
         socket.send(make_errmsg('You\'re not granted to this app, ask administrators for permission', jsonize=True))
         return
 
@@ -399,19 +399,20 @@ def enter_pod(socket, appname):
         except JSONDecodeError as e:
             socket.send(json.dumps({'error': str(e)}))
 
+    args = payload.data
+    podname = args['podname']
+    cluster = args['cluster']
+    container = args.get('container', None)
+
     app = App.get_by_name(appname)
     if not app:
         socket.send(make_errmsg('app {} not found'.format(appname), jsonize=True))
         return
 
-    if not check_rbac([RBACAction.ENTER_CONTAINER, ], app):
+    if not check_rbac([RBACAction.ENTER_CONTAINER, ], app, cluster):
         socket.send(make_errmsg('You\'re not granted to this app, ask administrators for permission', jsonize=True))
         return
 
-    args = payload.data
-    podname = args['podname']
-    cluster = args['cluster']
-    container = args.get('container', None)
     sh = KubeApi.instance().exec_shell(podname, cluster_name=cluster, container=container)
     need_exit = False
 
