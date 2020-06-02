@@ -25,7 +25,7 @@ from functools import wraps
 from console.config import (
     BOT_WEBHOOK_URL, LOGGER_NAME, DEBUG, DEFAULT_REGISTRY,
     REPO_DATA_DIR, EMAIL_SENDER, EMAIL_SENDER_PASSWOORD,
-    CLUSTER_CFG,
+    CLUSTER_CFG, DOCKER_HOST,
 )
 from console.libs.jsonutils import VersatileEncoder
 
@@ -328,7 +328,7 @@ def build_image_helper(appname, release):
     except CalledProcessError as e:
         raise BuildError(make_msg("Checkout", success=False, error="checkout tag error: {}".format(str(e))))
 
-    client = docker.APIClient(base_url="unix:///var/run/docker.sock")
+    client = docker.APIClient(base_url=DOCKER_HOST)
     for build in specs.builds:
         image_name_no_tag = construct_full_image_name(build.name, appname)
         image_tag = build.tag if build.tag else release.tag

@@ -44,6 +44,8 @@ SECRET_KEY = getenv('SECRET_KEY', default='testsecretkey')
 
 REDIS_URL = getenv('REDIS_URL', default='redis://127.0.0.1:6379/0')
 
+DOCKER_HOST = getenv('DOCKER_HOST', default="unix:///var/run/docker.sock")
+
 CLUSTER_CFG = {
     # "cluster1": {
     #     "k8s": "k8s name",
