@@ -267,11 +267,9 @@ def create_app(args):
     # create a new app
     app = App.create(appname, git, type, [g.user])
     if not app:
-        abort(400, 'Error during create an app (%s, %s, %s)' % (appname, git, tag))
+        abort(400, 'Error during create an app (%s, %s, %s)' % (appname, git, type))
     try:
         prepare_roles_for_new_app(app, g.user)
-    except IntegrityError as e:
-        pass
     except Exception as e:
         logger.exception("failed to grant user {} to app {}".format(g.user.nickname, appname))
         # app.delete()
@@ -1151,8 +1149,6 @@ def register_release(args):
             abort(400, 'Error during create an app (%s, %s, %s)' % (appname, git, tag))
         try:
             prepare_roles_for_new_app(app, g.user)
-        except IntegrityError as e:
-            pass
         except Exception as e:
             logger.exception("failed to grant user {} to app {}".format(g.user.nickname, appname))
             # app.delete()
