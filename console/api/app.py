@@ -21,7 +21,7 @@ from console.libs.validation import (
 )
 
 from console.libs.utils import (
-    logger, make_canary_appname, bearychat_sendmsg, make_app_redis_key,
+    logger, make_canary_appname, im_sendmsg, make_app_redis_key,
     make_errmsg,
 )
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
@@ -32,7 +32,7 @@ from console.models import (
 from console.libs.k8s import KubeApi, KubeError, ANNO_DEPLOY_INFO, ANNO_CONFIG_ID
 from console.libs.k8s import ApiException
 from console.config import (
-    DEFAULT_REGISTRY, BEARYCHAT_CHANNEL,
+    DEFAULT_REGISTRY, IM_WEBHOOK_CHANNEL,
     TASK_PUBSUB_CHANNEL, TASK_PUBSUB_EOF, PROTECTED_CLUSTER
 )
 from console.ext import rds
@@ -453,7 +453,7 @@ def delete_app(appname):
     )
 
     msg = 'Warning: App **{}** has been deleted by **{}**.'.format(appname, g.user.nickname)
-    bearychat_sendmsg(BEARYCHAT_CHANNEL, msg)
+    im_sendmsg(IM_WEBHOOK_CHANNEL, msg)
     return DEFAULT_RETURN_VALUE
 
 
@@ -1483,7 +1483,7 @@ def undeploy_app(args, appname):
             )
 
     msg = 'Warning: App **{}**\'s deployment in cluster **{}** has been deleted by **{}**.'.format(appname, cluster, g.user.nickname)
-    bearychat_sendmsg(BEARYCHAT_CHANNEL, msg)
+    im_sendmsg(IM_WEBHOOK_CHANNEL, msg)
     return DEFAULT_RETURN_VALUE
 
 

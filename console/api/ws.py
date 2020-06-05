@@ -12,7 +12,7 @@ from urllib3.exceptions import ProtocolError
 import redis_lock
 
 from console.libs.utils import (
-    logger, make_app_watcher_channel_name, make_msg, make_errmsg, send_email, bearychat_sendmsg,
+    logger, make_app_watcher_channel_name, make_msg, make_errmsg, send_email, im_sendmsg,
     make_app_redis_key,
 )
 from console.libs.jsonutils import VersatileEncoder
@@ -26,7 +26,7 @@ from console.tasks import celery_task_stream_response, build_image
 from console.ext import rds, db
 from console.config import (
     WS_HEARTBEAT_TIMEOUT, FAKE_USER,
-    BEARYCHAT_CHANNEL, APP_BUILD_TIMEOUT,
+    IM_WEBHOOK_CHANNEL, APP_BUILD_TIMEOUT,
 )
 
 ws = create_api_blueprint('ws', __name__, url_prefix='ws', jsonize=False, handle_http_error=False)
@@ -338,13 +338,13 @@ def build_app(socket, appname):
                 # after build exit, we send an email to the user
                 if phase.lower() != "finished":
                     subject = "KAE: Failed to build {}:{}".format(appname, tag)
-                    bearychat_msg = "KAE: Failed to build **{}:{}**".format(appname, tag)
+                    im_msg = "KAE: Failed to build **{}:{}**".format(appname, tag)
                     text_title = '<h2 style="color: #ff6161;"> Build Failed </h2>'
                     build_result_text = '<strong style="color:#ff6161;"> build terminates prematurely.</strong>'
                 else:
                     release.update_build_status(True)
                     subject = 'KAE: build {}:{} successfully'.format(appname, tag)
-                    bearychat_msg = 'KAE: build **{}:{}** successfully'.format(appname, tag)
+                    im_msg = 'KAE: build **{}:{}** successfully'.format(appname, tag)
                     text_title = '<h2 style="color: #00d600;"> Build Success </h2>'
                     build_result_text = '<strong style="color:#00d600; font-weight: 600">Build %s %s done.</strong>' % (appname, tag)
                 email_text_tpl = '''<div>
@@ -358,7 +358,7 @@ def build_app(socket, appname):
                 email_list = [u.email for u in app.subscriber_list]
                 if len(email_list) > 0:
                     send_email(email_list, subject, email_text)
-                bearychat_sendmsg(BEARYCHAT_CHANNEL, bearychat_msg)
+                im_sendmsg(IM_WEBHOOK_CHANNEL, im_msg)
         else:
             socket.send(make_msg("Unknown", msg="there seems exist another build task, try to fetch output", jsonize=True))
             build_task_id = rds.hget(app_redis_key, "build-task-id")

@@ -25,7 +25,7 @@ from functools import wraps
 from console.config import (
     BOT_WEBHOOK_URL, LOGGER_NAME, DEBUG, DEFAULT_REGISTRY,
     REPO_DATA_DIR, EMAIL_SENDER, EMAIL_SENDER_PASSWOORD,
-    CLUSTER_CFG, DOCKER_HOST,
+    CLUSTER_CFG, DOCKER_HOST, IM_WEBHOOK_TOKEN,
 )
 from console.libs.jsonutils import VersatileEncoder
 
@@ -129,7 +129,13 @@ def send_email(receivers, subject, text, sender=EMAIL_SENDER, password=EMAIL_SEN
         return False
 
 
-def bearychat_sendmsg(to, content):
+def im_sendmsg(to, content):
+    """
+    send message to IM app(currently use feishu)
+    :param to:
+    :param content:
+    :return:
+    """
     if not all([to, content, BOT_WEBHOOK_URL]):
         return
     to = to.strip(';')
@@ -139,8 +145,10 @@ def bearychat_sendmsg(to, content):
     content = '[console] {}'.format(content)
     data = {
         "text": content,
-        "channel": to,
+        "group": to,
     }
+    if IM_WEBHOOK_TOKEN:
+        data['token'] = IM_WEBHOOK_TOKEN
     headers = {
         'Connection': 'close',
     }
@@ -148,7 +156,7 @@ def bearychat_sendmsg(to, content):
         code, res = send_post_json_request(BOT_WEBHOOK_URL, data, headers)
         return res
     except:
-        logger.exception('Send bearychat msg failed')
+        logger.exception('Send im msg failed')
         return
 
 

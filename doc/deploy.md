@@ -5,7 +5,7 @@ create two namespace `kae-app` and `kae-job`, you should add certifications to `
 
     SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://kae:123qwe@127.0.0.1:3306/kae_console?charset=utf8mb4'
     REDIS_URL = 'redis://kae-redis:6379/0'
-    
+
     CLUSTER_CFG = {
         "cluster1": {
             "k8s": "k8s name",
@@ -26,12 +26,12 @@ create two namespace `kae-app` and `kae-job`, you should add certifications to `
             "namespace": "",
         }
     }
-    
+
     EMAIL_DOMAIN = 'email.com'
     EMAIL_SENDER = "notifications@email.com"
     EMAIL_SENDER_PASSWOORD = "password"
 
-    BOT_WEBHOOK_URL = 'slack or bearychat webhool url'
+    BOT_WEBHOOK_URL = 'im(only support feishu) webhool url'
 
     SENTRY_DSN = "xxxx"
 

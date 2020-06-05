@@ -17,14 +17,14 @@ from werkzeug.utils import import_string
 
 from console.config import (
     DEBUG, LOG_LEVEL, SENTRY_DSN, TASK_PUBSUB_CHANNEL,
-    TASK_PUBSUB_EOF, BEARYCHAT_CHANNEL,
+    TASK_PUBSUB_EOF, IM_WEBHOOK_CHANNEL,
     SSO_CLIENT_ID, SSO_CLIENT_SECRET, SSO_REALM, SSO_HOST,
     SERVER_HOST,
 )
 from console.ext import sess, db, mako, cache, rds, sockets, oidc
 from console.libs.datastructure import DateConverter
 from console.libs.jsonutils import VersatileEncoder
-from console.libs.utils import bearychat_sendmsg
+from console.libs.utils import im_sendmsg
 
 
 if DEBUG:
@@ -235,7 +235,7 @@ def make_celery(app):
             rds.publish(channel_name, json.dumps(failure_msg, cls=VersatileEncoder))
             rds.publish(channel_name, TASK_PUBSUB_EOF.format(task_id=task_id))
             msg = 'Console task {}:\nargs\n```\n{}\n```\nkwargs:\n```\n{}\n```\nerror message:\n```\n{}\n```'.format(self.name, args, kwargs, str(exc))
-            bearychat_sendmsg(BEARYCHAT_CHANNEL, msg)
+            im_sendmsg(IM_WEBHOOK_CHANNEL, msg)
 
         def __call__(self, *args, **kwargs):
             with app.app_context():
