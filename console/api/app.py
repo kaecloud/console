@@ -260,9 +260,22 @@ def create_app(args):
     git = args['git']
     type = args['type']
 
-    app = App.get_or_create(appname, git, type, [g.user])
+    app = App.get_by_name(appname)
+    if app is not None:
+        abort(403, f"app {appname} already exists")
+
+    # create a new app
+    app = App.create(appname, git, type, [g.user])
     if not app:
-        abort(400, 'Error during create an app (%s, %s, %s)' % (appname, git, type))
+        abort(400, 'Error during create an app (%s, %s, %s)' % (appname, git, tag))
+    try:
+        prepare_roles_for_new_app(app, g.user)
+    except IntegrityError as e:
+        pass
+    except Exception as e:
+        logger.exception("failed to grant user {} to app {}".format(g.user.nickname, appname))
+        # app.delete()
+        abort(500, "internal server error")
     return app
 
 
@@ -1130,20 +1143,25 @@ def register_release(args):
     # because some defaults may have added to specs, so we need update specs_text
     new_specs_text = yaml.dump(specs.to_dict())
 
-    app = App.get_or_create(appname, git, specs.type, [g.user])
+    app = App.get_by_name(appname)
     if not app:
-        abort(400, 'Error during create an app (%s, %s, %s)' % (appname, git, tag))
-    if app.type != specs.type:
-        abort(400, "Current app type is {} and You can't change it to {}".format(app.type, specs.type))
-    try:
-        prepare_roles_for_new_app(app, g.user)
-    except IntegrityError as e:
-        pass
-    except Exception as e:
-        logger.exception("failed to grant user {} to app {}".format(g.user.nickname, appname))
-        # app.delete()
-        abort(500, "internal server error")
-
+        # create a new app
+        app = App.create(appname, git, specs.type, [g.user])
+        if not app:
+            abort(400, 'Error during create an app (%s, %s, %s)' % (appname, git, tag))
+        try:
+            prepare_roles_for_new_app(app, g.user)
+        except IntegrityError as e:
+            pass
+        except Exception as e:
+            logger.exception("failed to grant user {} to app {}".format(g.user.nickname, appname))
+            # app.delete()
+            abort(500, "internal server error")
+    else:
+        if not check_rbac([RBACAction.UPDATE], app):
+            abort(403, 'Forbidden by RBAC rules, please check if you have permission.')
+        if app.type != specs.type:
+            abort(400, "Current app type is {} and You can't change it to {}".format(app.type, specs.type))
     # create default AppYaml if it doesn't exist
     app_yaml = AppYaml.get_by_app_and_name(app, 'default')
     if not app_yaml:

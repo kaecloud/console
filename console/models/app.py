@@ -30,6 +30,10 @@ class App(BaseModelMixin):
         app = cls.get_by_name(name)
         if app:
             return app
+        return cls.create(name, git, apptype, subscribers)
+
+    @classmethod
+    def create(cls, name, git, apptype, subscribers=None):
         subscriber_names = None
         if subscribers is not None:
             subscriber_names = json.dumps([u.username for u in subscribers])
