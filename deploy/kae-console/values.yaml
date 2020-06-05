@@ -7,7 +7,7 @@ replicaCount: 1
 image:
   # repository: kaecloud/console
   repository: registry.cn-hangzhou.aliyuncs.com/kaecloud/console
-  tag: v0.2.6
+  tag: v0.2.12
   pullPolicy: Always
 
 service:

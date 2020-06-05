@@ -47,7 +47,7 @@ kubernetes = "==11.0.0"
 celery = "*"
 marshmallow = "*"
 flasgger = "*"
-kaelib = "==0.0.8"
+kaelib = "==0.0.9"
 python-keycloak = "*"
 
 [requires]
