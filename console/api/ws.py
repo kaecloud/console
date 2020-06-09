@@ -380,6 +380,8 @@ def build_app(socket, appname):
                 except WebSocketError as e:
                     client_closed = True
                     break
+        # notify heartbeat sender to exit
+        client_closed = True
 
 
 @ws.route('/app/<appname>/entry')
