@@ -18,7 +18,7 @@ class OPType(enum.Enum):
     UNDEPLOY_APP = "undeploy_app"
     DEPLOY_APP_CANARY = "deploy_app_canary"
     UNDEPLOY_APP_CANARY = "undeploy_app_canary"
-    SET_APP_CANARY_WEIGHT = "set_app_canary_weight"
+    SET_APP_CANARY_WEIGHT = "set_canary_weight"
     UPGRADE_APP = "upgrade_app"
     SCALE_APP = "scale_app"
     DELETE_APP = "delete_app"

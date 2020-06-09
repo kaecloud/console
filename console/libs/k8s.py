@@ -540,7 +540,7 @@ class KaeCluster(object):
         return parts[1]
         # return full_rules.get("rules", None)
 
-    def set_traefik_weight(self, appname, weight):
+    def set_canary_weight(self, appname, weight):
         canary_appname = make_canary_appname(appname)
         annotations_key = "traefik.ingress.kubernetes.io/service-weights"
         annotations_val = "{}: {}%\n".format(canary_appname, weight)

@@ -1649,20 +1649,15 @@ def set_app_canary_weight(args, appname):
     cluster = args['cluster']
     weight = args['weight']
 
-    app = App.get_by_name(appname)
-    if not app:
-        abort(404, 'app {} not found'.format(appname))
+    app = get_app_raw(appname, [RBACAction.UPDATE])
 
     with lock_app(appname):
         canary_info = _get_canary_info(appname, cluster)
         if not canary_info['status']:
             abort(403, "canary release not found")
 
-        if not g.user.granted_to_app(app):
-            abort(403, 'You\'re not granted to this app, ask administrators for permission')
-
         with handle_k8s_error("Error when set app canary weight {}".format(appname)):
-            KubeApi.instance().set_traefik_weight(appname, weight, cluster_name=cluster)
+            KubeApi.instance().set_canary_weight(appname, weight, cluster_name=cluster)
 
         OPLog.create(
             username=g.user.username,
@@ -1817,12 +1812,7 @@ def kill_build_task(appname):
     """
     kill build task
     """
-    app = App.get_by_name(appname)
-    if not app:
-        abort(404, 'app {} not found'.format(appname))
-
-    if not g.user.granted_to_app(app):
-        abort(403, 'You\'re not granted to this app, ask administrators for permission')
+    app = get_app_raw(appname, [RBACAction.BUILD])
 
     app_redis_key = make_app_redis_key(appname)
     try:
