@@ -127,6 +127,9 @@ def send_email(receivers, subject, text, sender=EMAIL_SENDER, password=EMAIL_SEN
     except SMTPException as e:
         logger.warning("Error: unable to send email %s" % str(e))
         return False
+    except:
+        logger.exception(f'Internel error: Send email failed(server: {server}')
+        return False
 
 
 def im_sendmsg(to, content):
