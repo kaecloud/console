@@ -33,7 +33,7 @@ ws = create_api_blueprint('ws', __name__, url_prefix='ws', jsonize=False, handle
 
 
 def send_ping(sock):
-    sock.send_frame("PP", sock.OPCODE_PING)
+    sock.send_frame("PPPP", sock.OPCODE_PING)
 
 
 def ws_user_require(require_token=False, scopes_required=None):
@@ -293,8 +293,10 @@ def build_app(socket, appname):
                 time.sleep(interval)
                 send_ping(socket)
             except WebSocketError as e:
+                logger.info("************* send ping error")
                 client_closed = True
-                return
+                break
+        logger.info(f"******************** build heartbeat sender exit(app: {appname})")
 
     gevent.spawn(heartbeat_sender)
 
@@ -382,6 +384,8 @@ def build_app(socket, appname):
                     break
         # notify heartbeat sender to exit
         client_closed = True
+        logger.info("************** close socket... ")
+        socket.close()
 
 
 @ws.route('/app/<appname>/entry')
