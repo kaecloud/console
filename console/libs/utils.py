@@ -100,7 +100,7 @@ def send_get_json_request(url, headers=None):
 
 
 def send_email(receivers, subject, text, sender=EMAIL_SENDER, password=EMAIL_SENDER_PASSWOORD,
-               files=None, server="smtp.exmail.qq.com"):
+               files=None, server="smtp.exmail.qq.com", port=smtplib.SMTP_SSL_PORT, timeout=60):
     msg = MIMEMultipart()
     msg['Subject'] = subject
     msg['From'] = sender
@@ -118,7 +118,7 @@ def send_email(receivers, subject, text, sender=EMAIL_SENDER, password=EMAIL_SEN
 
     logger.info("sending email..")
     try:
-        s = smtplib.SMTP(server)
+        s = smtplib.SMTP_SSL(server, port, timeout=timeout)
         s.login(sender, password)
         s.sendmail(sender, receivers, msg.as_string())
         s.close()
