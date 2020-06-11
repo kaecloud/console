@@ -198,6 +198,11 @@ def _validate_configmap_keys(appname, specs, app_config):
             abort(403, "%s are not in configmap" % str(diff_keys))
 
 
+def _check_deploy_info_error(dp):
+    if ANNO_DEPLOY_INFO not in dp.metadata.annotations:
+        abort(403, f"deployment's annotation don't contain {ANNO_DEPLOY_INFO}")
+
+
 @bp.route('/')
 @use_args(PaginationSchema(), location="query")
 @user_require(True)
@@ -1247,6 +1252,7 @@ def scale_app(args, appname):
         with handle_k8s_error("Error when get deployment"):
             k8s_deployment = KubeApi.instance().get_deployment(appname, cluster_name=cluster)
 
+        _check_deploy_info_error(k8s_deployment)
         deploy_info = json.loads(k8s_deployment.metadata.annotations[ANNO_DEPLOY_INFO])
         version = k8s_deployment.metadata.resource_version
 
@@ -1369,6 +1375,8 @@ def deploy_app(args, appname):
         with handle_k8s_error("Error when get deployment"):
             k8s_deployment = KubeApi.instance().get_deployment(appname, cluster_name=cluster, ignore_404=True)
             if k8s_deployment is not None:
+                _check_deploy_info_error(k8s_deployment)
+
                 deploy_info = json.loads(k8s_deployment.metadata.annotations[ANNO_DEPLOY_INFO])
                 exist_deploy_id = deploy_info["deploy_id"]
                 config_id = deploy_info.get("config_id")
@@ -1580,6 +1588,8 @@ def deploy_app_canary(args, appname):
             with handle_k8s_error("Error when get deployment"):
                 k8s_deployment = KubeApi.instance().get_deployment(appname, cluster_name=cluster, ignore_404=True)
                 if k8s_deployment is not None:
+                    _check_deploy_info_error(k8s_deployment)
+
                     deploy_info = json.loads(k8s_deployment.metadata.annotations[ANNO_DEPLOY_INFO])
                     config_id = deploy_info.get("config_id")
                     app_cfg = AppConfig.get(id=config_id)
