@@ -214,6 +214,7 @@ class Role(BaseModelMixin):
             "actions": json.loads(self.actions),
             "clusters": self.cluster_list,
         }
+        return d
 
 
 class UserRoleBinding(BaseModelMixin):
