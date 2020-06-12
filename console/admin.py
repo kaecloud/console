@@ -56,6 +56,18 @@ def _validate_clusters(form, field):
             raise ValidationError(msg)
 
 
+def _validate_username(form, field):
+    username = field.data
+    if User.get_by_username(username) is None:
+        raise ValidationError(f"invalid username: {username}")
+
+
+def _validate_group_id(form, field):
+    group_id = field.data
+    if Group.get_by_id(group_id) is None:
+        raise ValidationError(f"invalid group id: {group_id}")
+
+
 class AppModelView(ConsoleModelView):
     column_searchable_list = ['name']
 
@@ -84,8 +96,15 @@ def _get_user_choices():
 
 
 class UserRoleBindingModelView(ConsoleModelView):
-    form_choices = {
-        "username": _get_user_choices(),
+    # form_choices = {
+    #     "username": _get_user_choices(),
+    # }
+
+    form_args = {
+        "username": {
+            "label": "Username",
+            "validators": [_validate_username],
+        },
     }
     column_searchable_list = ['username']
 
@@ -98,6 +117,12 @@ def _get_group_choices():
 class GroupRoleBindingModelView(ConsoleModelView):
     form_choices = {
         "group_id": _get_group_choices(),
+    }
+    form_args = {
+        "group_id": {
+            "label": "Group Id",
+            "validators": [_validate_group_id],
+        },
     }
 
 
