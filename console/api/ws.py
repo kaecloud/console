@@ -337,14 +337,16 @@ def build_app(socket, appname):
                 logger.debug("************ terminate task")
                 # after build exit, we send an email to the user
                 if phase.lower() != "finished":
-                    subject = "KAE: Failed to build {}:{}".format(appname, tag)
+                    # send im message when build failed
                     im_msg = "KAE: Failed to build **{}:{}**".format(appname, tag)
+                    im_sendmsg(IM_WEBHOOK_CHANNEL, im_msg)
+
+                    subject = "KAE: Failed to build {}:{}".format(appname, tag)
                     text_title = '<h2 style="color: #ff6161;"> Build Failed </h2>'
                     build_result_text = '<strong style="color:#ff6161;"> build terminates prematurely.</strong>'
                 else:
                     release.update_build_status(True)
                     subject = 'KAE: build {}:{} successfully'.format(appname, tag)
-                    im_msg = 'KAE: build **{}:{}** successfully'.format(appname, tag)
                     text_title = '<h2 style="color: #00d600;"> Build Success </h2>'
                     build_result_text = '<strong style="color:#00d600; font-weight: 600">Build %s %s done.</strong>' % (appname, tag)
                 email_text_tpl = '''<div>
@@ -358,7 +360,6 @@ def build_app(socket, appname):
                 email_list = [u.email for u in app.subscriber_list]
                 if len(email_list) > 0:
                     send_email(email_list, subject, email_text)
-                im_sendmsg(IM_WEBHOOK_CHANNEL, im_msg)
         else:
             socket.send(make_msg("Unknown", msg="there seems exist another build task, try to fetch output", jsonize=True))
             build_task_id = rds.hget(app_redis_key, "build-task-id")
