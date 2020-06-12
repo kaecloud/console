@@ -381,6 +381,7 @@ class DeployVersion(BaseModelMixin):
             'app_id': self.app_id,
             'release_tag': self.tag,
             'config_id': self.config_id,
+            'cluster': self.cluster,
         }
 
 

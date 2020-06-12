@@ -56,6 +56,14 @@ def _validate_clusters(form, field):
             raise ValidationError(msg)
 
 
+class AppModelView(ConsoleModelView):
+    column_searchable_list = ['name']
+
+
+class ReleaseModelView(ConsoleModelView):
+    column_searchable_list = ['image', 'specs_text']
+
+
 class RoleModelView(ConsoleModelView):
     column_searchable_list = ['name']
     form_args = {
@@ -94,9 +102,9 @@ class GroupRoleBindingModelView(ConsoleModelView):
 
 
 def init_admin(admin):
-    admin.add_view(ConsoleModelView(App, db.session, endpoint='app_db_admin'))
+    admin.add_view(AppModelView(App, db.session, endpoint='app_db_admin'))
     admin.add_view(ConsoleModelView(AppYaml, db.session, endpoint='app_yaml_db_admin'))
-    admin.add_view(ConsoleModelView(Release, db.session, endpoint='release_db_admin'))
+    admin.add_view(ReleaseModelView(Release, db.session, endpoint='release_db_admin'))
     admin.add_view(ConsoleModelView(DeployVersion, db.session, endpoint='deploy_version_db_admin'))
     admin.add_view(RoleModelView(Role, db.session, endpoint='role_db_admin'))
     admin.add_view(UserRoleBindingModelView(UserRoleBinding, db.session, endpoint="user_role_binding_db_admin"))
