@@ -49,6 +49,7 @@ marshmallow = "*"
 flasgger = "*"
 kaelib = "==0.0.9"
 python-keycloak = "*"
+grafana-api = "*"
 
 [requires]
 python_version = "3.6"
