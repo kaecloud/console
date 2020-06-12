@@ -43,6 +43,7 @@ api_blueprints = [
     'home',
     'cluster',
     'rbac',
+    'user',
 ]
 
 swagger_yaml_template = """
