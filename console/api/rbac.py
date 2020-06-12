@@ -13,7 +13,7 @@ from console.models import (
 bp = create_api_blueprint('rbac', __name__, 'rbac')
 
 
-@bp.route('/')
+@bp.route('/roles')
 @user_require(True)
 def list_roles():
     """
@@ -23,7 +23,7 @@ def list_roles():
     return jsonify([r.to_dict() for r in roles])
 
 
-@bp.route('/', methods=['POST'])
+@bp.route('/role', methods=['POST'])
 @use_args(CreateRoleArgsSchema())
 @user_require(True)
 def create_role(args):
@@ -51,7 +51,7 @@ def create_role(args):
     return DEFAULT_RETURN_VALUE
 
 
-@bp.route('/', methods=['POST'])
+@bp.route('/binding', methods=['POST'])
 @use_args(CreateRoleBindingArgsSchema())
 @user_require(True)
 def create_role_binding(args):
