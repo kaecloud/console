@@ -68,8 +68,17 @@ class Group(Dict):
         return [Group(d) for d in group_dict_list]
 
     @classmethod
+    def get_by_id(cls, group_id):
+        group_dict = SSO.instance().get_group(group_id)
+        if group_dict is None:
+            return None
+        return Group(group_dict)
+
+    @classmethod
     def get_by_name(cls, name):
         group_dict = SSO.instance().get_group_by_name(name)
+        if group_dict is None:
+            return None
         return Group(group_dict)
 
     def __str__(self):
