@@ -1,5 +1,7 @@
+from flask import g
+
 from console.libs.view import create_api_blueprint, user_require
-from console.libs.utils import get_cluster_names
+from console.models.rbac import get_clusters_by_user
 
 bp = create_api_blueprint('cluster', __name__, 'cluster')
 
@@ -23,4 +25,4 @@ def list_cluster():
             "cluster2",
             ]
     """
-    return get_cluster_names()
+    return get_clusters_by_user(g.user)

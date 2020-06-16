@@ -129,6 +129,29 @@ def get_roles_by_user(u):
     return roles
 
 
+def get_clusters_by_user(user):
+    if user is None:
+        user = g.user
+    all_clusters = get_cluster_names()
+
+    roles = get_roles_by_user(user)
+    logger.debug(f"roles: {roles}, user: {user}")
+    if not roles:
+        return []
+
+    role_clusters = set()
+
+    for role in roles:
+        # kae admin can do anything
+        if RBACAction.KAE_ADMIN in role.action_list:
+            return all_clusters
+        # check cluster
+        role_clusters.update(role.cluster_list)
+        if len(role_clusters) == len(all_clusters):
+            return list(role_clusters)
+    return list(role_clusters)
+
+
 class Role(BaseModelMixin):
     __tablename__ = "role"
     name = db.Column(db.CHAR(64), nullable=False, unique=True)
