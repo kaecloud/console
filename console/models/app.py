@@ -19,7 +19,6 @@ class App(BaseModelMixin):
     name = db.Column(db.CHAR(64), nullable=False, unique=True)
     git = db.Column(db.String(255), nullable=False)
     type = db.Column(db.CHAR(64), nullable=False)
-    rank = db.Column(db.Integer, default=0)
     subscribers = db.Column(db.Text())
 
     def __str__(self):

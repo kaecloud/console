@@ -1357,9 +1357,6 @@ def deploy_app(args, appname):
 
     app = get_app_raw(appname, [RBACAction.DEPLOY], cluster)
 
-    if cluster in PROTECTED_CLUSTER and app.rank != 1:
-        abort(403, 'This app is not permitted to deploy on the cluster used for production.')
-
     app_yaml = AppYaml.get_by_app_and_name(app, app_yaml_name)
     if not app_yaml:
         abort(404, "AppYaml {} doesn't exist.".format(app_yaml_name))
@@ -1555,9 +1552,6 @@ def deploy_app_canary(args, appname):
 
         if app.type != "web":
             abort(403, "Only web app can deploy canary release")
-
-        if cluster in PROTECTED_CLUSTER and app.rank != 1:
-            abort(403, 'This app is not permitted to deploy on the cluster used for production.')
 
         app_yaml = AppYaml.get_by_app_and_name(app, app_yaml_name)
         if not app_yaml:
