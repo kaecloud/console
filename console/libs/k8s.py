@@ -219,6 +219,15 @@ class KaeCluster(object):
         resp = stream(self.core_api.connect_get_namespaced_pod_exec, podname, self.namespace, **kwargs)
         return resp
 
+    def get_hpa(self, appname, ignore_404=False):
+        try:
+            return self.scale_api.read_namespaced_horizontal_pod_autoscaler(appname, namespace=self.namespace)
+        except ApiException as e:
+            if e.status == 404 and ignore_404 is True:
+                return None
+            else:
+                raise e
+
     def create_hpa(self, appname, hpa_data):
         """
         Create horizontal pod autoscaler
