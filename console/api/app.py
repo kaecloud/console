@@ -1254,9 +1254,11 @@ def scale_app(args, appname):
 
     with lock_app(appname):
         with handle_k8s_error("Error when get deployment"):
-            if KubeApi.instance().get_hpa(appname, cluster_name=cluster, ignore_404=True) is not None:
-                abort(403, "hpa exists, so you can't scale")
+            k8s_hpa = KubeApi.instance().get_hpa(appname, cluster_name=cluster, ignore_404=True)
             k8s_deployment = KubeApi.instance().get_deployment(appname, cluster_name=cluster)
+        # if HPA exists, then forbidden scale operation
+        if k8s_hpa is not None:
+            abort(403, "hpa exists, so you can't scale")
 
         _check_deploy_info_error(k8s_deployment)
         deploy_info = json.loads(k8s_deployment.metadata.annotations[ANNO_DEPLOY_INFO])
