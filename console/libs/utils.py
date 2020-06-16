@@ -25,7 +25,7 @@ from functools import wraps
 from console.config import (
     BOT_WEBHOOK_URL, LOGGER_NAME, DEBUG, DEFAULT_REGISTRY,
     REPO_DATA_DIR, EMAIL_SENDER, EMAIL_SENDER_PASSWOORD,
-    CLUSTER_CFG, DOCKER_HOST, IM_WEBHOOK_TOKEN,
+    CLUSTER_CFG, PROTECTED_CLUSTER, DOCKER_HOST, IM_WEBHOOK_TOKEN,
 )
 from console.libs.jsonutils import VersatileEncoder
 
@@ -242,6 +242,13 @@ def get_cluster_names():
 
 def cluster_exists(name):
     return name in CLUSTER_CFG
+
+
+def get_safe_cluster_names(names=None):
+    if names is None:
+        return list(set(CLUSTER_CFG.keys()) - set(PROTECTED_CLUSTER))
+    else:
+        return list(set(names) & (set(CLUSTER_CFG.keys()) - set(PROTECTED_CLUSTER)))
 
 
 def search_tls_secret(cluster, hostname):

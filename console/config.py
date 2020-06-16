@@ -66,6 +66,8 @@ CLUSTER_CFG = {
     # }
 }
 
+PROTECTED_CLUSTER = []
+
 SQLALCHEMY_DATABASE_URI = getenv('SQLALCHEMY_DATABASE_URI', default="mysql+pymysql://root@127.0.0.1:3306/kaetest?charset=utf8mb4")
 SQLALCHEMY_TRACK_MODIFICATIONS = getenv('SQLALCHEMY_TRACK_MODIFICATIONS', default=True, type=bool)
 SQLALCHEMY_POOL_SIZE = getenv('SQLALCHEMY_POOL_SIZE', default=30)
@@ -93,7 +95,6 @@ REGISTRY_AUTHS = {
     "registry.cn-hangzhou.aliyuncs.com": "aliyun",
 }
 
-PROTECTED_CLUSTER = ['aliyun']
 
 HOST_DATA_DIR = "/data/kae"
 POD_LOG_DIR = "/kae/logs"
@@ -119,6 +120,9 @@ for cluster_name, cluster_info in CLUSTER_CFG.items():
     tls_secrets = cluster_info.get("tls_secrets", {})
     if base_domain is not None and base_domain not in tls_secrets:
         raise ValueError("cluster {} base domain {} needs tls secret".format(cluster_name, base_domain))
+# check if every cluster in PROTECT_CLUSTER stays in CLUSTER_CFG
+if len(set(PROTECTED_CLUSTER) - set(CLUSTER_CFG.keys())) != 0:
+    raise ValueError(f"PROTECT_CLUSTER is invalid: {set(PROTECTED_CLUSTER) - set(CLUSTER_CFG.keys())} is not in CLUSTER_CFG")
 
 ##################################################
 # the config below must not use getenv

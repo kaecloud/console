@@ -77,7 +77,7 @@ def check_rbac(actions, app=None, cluster=None, user=None):
     return False
 
 
-def prepare_roles_for_new_app(app, user):
+def prepare_roles_for_new_app(app, user, clusters=None):
     """
     auto generate RBAC roles when create app, we will do following thins
     1. create three roles(reader, writer, admin)
@@ -85,12 +85,13 @@ def prepare_roles_for_new_app(app, user):
     3. create group role bindings for reader role and the groups which the app creator belongs to
     :param app:
     :param user:
+    :param clusters:
     :return:
     """
     app_reader_name, app_writer_name, app_admin_name = f"app-{app.name}-reader", f"app-{app.name}-writer", f"app-{app.name}-admin"
-    app_reader = Role.create(app_reader_name, [app], [RBACAction.GET])
-    app_writer = Role.create(app_writer_name, [app], _writer_action_list)
-    app_admin = Role.create(app_admin_name, [app], [RBACAction.ADMIN])
+    app_reader = Role.create(app_reader_name, [app], [RBACAction.GET], clusters)
+    app_writer = Role.create(app_writer_name, [app], _writer_action_list, clusters)
+    app_admin = Role.create(app_admin_name, [app], [RBACAction.ADMIN], clusters)
     UserRoleBinding.create(user.username, app_admin)
     for group in user.get_groups():
         GroupRoleBinding.create(group.id, app_reader)

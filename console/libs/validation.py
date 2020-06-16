@@ -166,12 +166,14 @@ class RegisterSchema(StrictSchema):
     commit_message = fields.Str()
     author = fields.Str()
     force = fields.Bool(missing=False)
+    clusters = fields.List(fields.Str())
 
 
 class CreateAppArgsSchema(StrictSchema):
     appname = fields.Str(required=True, validate=validate_appname)
     git = fields.Str(required=True, validate=validate_git)
     type = fields.Str(required=True, validate=validate_app_type)
+    clusters = fields.List(fields.Str())
 
 
 def parse_memory(s):

@@ -22,7 +22,7 @@ from console.libs.validation import (
 
 from console.libs.utils import (
     logger, make_canary_appname, im_sendmsg, make_app_redis_key,
-    make_errmsg,
+    make_errmsg, get_safe_cluster_names,
 )
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
 from console.models import (
@@ -264,6 +264,8 @@ def create_app(args):
     appname = args['appname']
     git = args['git']
     type = args['type']
+    clusters = args.get('clusters', None)
+    clusters = get_safe_cluster_names(clusters)
 
     app = App.get_by_name(appname)
     if app is not None:
@@ -274,7 +276,7 @@ def create_app(args):
     if not app:
         abort(400, 'Error during create an app (%s, %s, %s)' % (appname, git, type))
     try:
-        prepare_roles_for_new_app(app, g.user)
+        prepare_roles_for_new_app(app, g.user, clusters)
     except Exception as e:
         logger.exception("failed to grant user {} to app {}".format(g.user.nickname, appname))
         # app.delete()
@@ -1131,7 +1133,8 @@ def register_release(args):
     commit_message = args.get('commit_message')
     author = args.get('author')
     force = args['force']
-
+    clusters = args.get('clusters', None)
+    clusters = get_safe_cluster_names(clusters)
     # check the format of specs
     try:
         yaml_dict = yaml.load(specs_text)
@@ -1153,7 +1156,7 @@ def register_release(args):
         if not app:
             abort(400, 'Error during create an app (%s, %s, %s)' % (appname, git, tag))
         try:
-            prepare_roles_for_new_app(app, g.user)
+            prepare_roles_for_new_app(app, g.user, clusters)
         except Exception as e:
             logger.exception("failed to grant user {} to app {}".format(g.user.nickname, appname))
             # app.delete()
