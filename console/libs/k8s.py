@@ -287,8 +287,12 @@ class KaeCluster(object):
             else:
                 raise e
 
-    def delete_hpa(self, appname):
-        self.scale_api.delete_namespaced_horizontal_pod_autoscaler(name=appname, namespace=self.namespace)
+    def delete_hpa(self, appname, ignore_404=False):
+        try:
+            self.scale_api.delete_namespaced_horizontal_pod_autoscaler(name=appname, namespace=self.namespace)
+        except ApiException as e:
+            if not (e.status == 404 and ignore_404 is True):
+                raise e
 
     def create_or_update_config_map(self, appname, config_id, cm_data, replace=True):
         """
@@ -470,6 +474,9 @@ class KaeCluster(object):
         hpa_data = spec.service.hpa
         if hpa_data:
             self.create_hpa(spec.appname, hpa_data)
+        else:
+            # delete any exist HPA
+            self.delete_hpa(spec.appname, ignore_404=True)
 
     def deploy_app_canary(self, spec, release_tag, app_cfg=None, ignore_config=False):
         """
