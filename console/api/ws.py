@@ -357,7 +357,7 @@ def build_app(socket, appname):
 </div>'''
                 email_text = email_text_tpl.format(text_title, html.escape("\n".join(total_msg)) + '\n' + build_result_text)
                 # TODO better way to get users to send email
-                email_list = [u.email for u in app.subscriber_list]
+                email_list = [u.email for u in app.subscriber_list if 'email' in u]
                 if len(email_list) > 0:
                     send_email(email_list, subject, email_text)
         else:

@@ -82,10 +82,7 @@ class Group(Dict):
         return Group(group_dict)
 
     def __str__(self):
-        return '{class_} {u.id} {u.name}'.format(
-            class_=self.__class__,
-            u=self,
-        )
+        return f"{self.__class__} {self.id} {self.name}"
 
 
 class User(Dict):
@@ -100,10 +97,7 @@ class User(Dict):
         return [Group(grp) for grp in SSO.instance().get_groups_by_user(self['username'])]
 
     def __str__(self):
-        return '{class_} {u.username} {u.email}'.format(
-            class_=self.__class__,
-            u=self,
-        )
+        return f"{self.__class__} {self.username} {self.get('email', '')}"
 
     @classmethod
     def get_by_username(cls, username):
