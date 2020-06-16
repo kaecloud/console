@@ -249,6 +249,8 @@ class AppCanaryWeightArgSchema(StrictSchema):
 class PodLogArgsSchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
     container = fields.Str()
+    # TODO only return 200 lines currently
+    tail_lines = fields.Int(missing=200)
 
 
 class ABTestingSchema(StrictSchema):

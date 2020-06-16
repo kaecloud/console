@@ -508,6 +508,7 @@ def get_app_pod_log(args, appname, podname):
 
     kwargs = {
         'cluster_name': cluster,
+        'tail_lines': args['tail_lines'],
     }
     if container:
         kwargs['container'] = container
