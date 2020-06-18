@@ -639,12 +639,24 @@ class KaeCluster(object):
             if e.status != 404:
                 raise e
 
-    def update_app(self, appname, spec, deploy_ver, version=None, renew_id=None):
+    def rollback_app(self, appname, spec, deploy_ver, version=None):
         dp_annotations = {
             ANNO_DEPLOY_INFO: json.dumps(deploy_ver.to_k8s_annotation()),
         }
-        d = self._create_deployment_dict(spec, version=version, renew_id=renew_id, annotations=dp_annotations)
+        # change configmap if necessary
+        app_cfg = deploy_ver.app_config
+        if app_cfg is not None:
+            self.create_or_update_config_map(app_cfg.appname, app_cfg.id, app_cfg.data_dict, replace=True)
+        # replace deployment
+        d = self._create_deployment_dict(spec, version=version, annotations=dp_annotations)
         self.apps_api.replace_namespaced_deployment(name=appname, namespace=self.namespace, body=d)
+        # create HPA if neccessary
+        hpa_data = spec.service.hpa
+        if hpa_data:
+            self.create_hpa(spec.appname, hpa_data)
+        else:
+            # delete any exist HPA
+            self.delete_hpa(spec.appname, ignore_404=True)
 
     def undeploy_app(self, appname, apptype, ignore_404=False):
         self.undeploy_app_canary(appname)

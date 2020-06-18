@@ -366,6 +366,7 @@ def rollback_app(args, appname):
     """
     revision = args['revision']
     cluster = args['cluster']
+    deploy_id = args['deploy_id']
     app = get_app_raw(appname, [RBACAction.ROLLBACK], cluster)
 
     with lock_app(appname):
@@ -377,16 +378,18 @@ def rollback_app(args, appname):
             k8s_deployment = KubeApi.instance().get_deployment(appname, cluster_name=cluster)
 
         version = k8s_deployment.metadata.resource_version
-        deploy_id = k8s_deployment.metadata.annotations['deploy_id']
+        deploy_info = json.loads(k8s_deployment.metadata.annotations[ANNO_DEPLOY_INFO])
+        current_deploy_id = deploy_info['deploy_id']
 
-        if k8s_deployment.spec.template.metadata.annotations is None:
-            renew_id = None
+        if deploy_id is not None:
+            previous_ver = DeployVersion.get(deploy_id)
         else:
-            renew_id = k8s_deployment.spec.template.metadata.annotations.get("renew_id", None)
-
-        previous_ver = DeployVersion.get_previous_version(deploy_id, revision)
+            previous_ver = DeployVersion.get_previous_version(current_deploy_id, revision)
         if previous_ver is None:
-            abort(403, "invalid revision")
+            abort(403, "invalid revision or deploy id")
+
+        if previous_ver.id == current_deploy_id:
+            abort(400, "the deployment is same, ignore rollback operation")
 
         specs = previous_ver.specs
         # we never decrease replicas when rollback
@@ -394,9 +397,9 @@ def rollback_app(args, appname):
             specs.service.replicas = k8s_deployment.spec.replicas
 
         with handle_k8s_error('Error when update app({}:{})'.format(appname, version)):
-            KubeApi.instance().update_app(
+            KubeApi.instance().rollback_app(
                 appname, specs, previous_ver,
-                cluster_name=cluster, version=version, renew_id=renew_id)
+                cluster_name=cluster, version=version)
 
     OPLog.create(
         username=g.user.username,
@@ -405,7 +408,7 @@ def rollback_app(args, appname):
         cluster=cluster,
         tag=app.latest_release.tag,
         action=OPType.ROLLBACK_APP,
-        content=f'rollback app `{appname}`(revision {revision})',
+        content=f'rollback app `{appname}`(revision {revision}, deploy_id {deploy_id})',
     )
     return DEFAULT_RETURN_VALUE
 

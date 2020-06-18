@@ -259,6 +259,7 @@ ConfigMapArgsSchema = SecretArgsSchema
 class RollbackSchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
     revision = fields.Int(missing=0)
+    deploy_id = fields.Int()
 
 
 class AppYamlArgsSchema(StrictSchema):
