@@ -313,6 +313,36 @@ def get_app(appname):
     return get_app_raw(appname, [RBACAction.GET, ])
 
 
+@bp.route('/<appname>/deploy_history')
+@use_args(PaginationSchema(), location="query")
+@user_require(True)
+def list_app_deploy_history(args, appname):
+    """
+    List all the apps associated with the current logged in user, for
+    administrators, list all apps
+    ---
+    responses:
+      200:
+        description: A list of app owned by current user
+        schema:
+          type: array
+          items:
+            $ref: '#/definitions/App'
+        examples:
+          application/json:
+          - id: 10001
+            created: "2018-03-21 14:54:06"
+            updated: "2018-03-21 14:54:07"
+            name: "test-app"
+            type: "web"
+            git: "git@github.com:kaecloud/console.git"
+    """
+    limit = args['size']
+    start = (args['page'] - 1) * limit
+    app = get_app_raw(appname, [RBACAction.GET])
+    return DeployVersion.get_by_app(app, start, limit)
+
+
 @bp.route('/<appname>/rollback', methods=['PUT'])
 @use_args(RollbackSchema())
 @user_require(True)
