@@ -1018,6 +1018,38 @@ def get_config_map(args, appname):
     return res
 
 
+@bp.route('/<appname>/config/<config_id>')
+@user_require(True)
+def get_app_config(appname, config_id):
+    """
+    get config of specified app
+    ---
+    parameters:
+      - name: appname
+        in: path
+        type: string
+        required: true
+      - name: cluster
+        in: query
+        type: string
+        required: true
+    responses:
+      200:
+        description: Error information
+        schema:
+          type: string
+        examples:
+           plain/text:
+             "aaa=11"
+    """
+    # check if the user can access the App
+    get_app_raw(appname, [RBACAction.GET_CONFIG, ])
+    cfg = AppConfig.get(config_id)
+    if cfg is None:
+        abort(404, "app config not exists")
+    return cfg.to_dict()
+
+
 @bp.route('/<appname>/yaml')
 @user_require(True)
 def list_app_yaml(appname):

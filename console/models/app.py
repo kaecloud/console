@@ -329,7 +329,7 @@ class DeployVersion(BaseModelMixin):
     def get(cls, id):
         if isinstance(id, str):
             id = int(id)
-        r = super(DeployVersion, cls).get(id)
+        r = cls.query.get(id)
         if r and r.app:
             return r
         return None
@@ -432,6 +432,11 @@ class AppConfig(BaseModelMixin):
     @cached_property
     def data_dict(self):
         return json.loads(self.content)
+
+    def to_dict(self):
+        dic = super().to_dict()
+        dic['content'] = json.loads(self.content)
+        return dic
 
 
 event.listen(
