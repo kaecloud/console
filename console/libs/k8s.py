@@ -437,6 +437,14 @@ class KaeCluster(object):
             else:
                 raise e
 
+    def scale_app(self, appname, replicas):
+        obj = {
+            "spec": {
+                "replicas": replicas,
+            }
+        }
+        return self.apps_api.patch_namespaced_deployment(appname, body=obj, namespace=self.namespace)
+
     def renew_app(self, appname):
         """
         force kubernetes to recreate the pods, it mainly used to make secrets and configmap effective.

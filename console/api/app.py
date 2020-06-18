@@ -1220,10 +1220,6 @@ def scale_app(args, appname):
           cluster:
             type: string
             required: true
-          cpus:
-            type: object
-          memories:
-            type: object
           replicas:
             type: string
 
@@ -1250,6 +1246,7 @@ def scale_app(args, appname):
           error: "xxx"
     """
     cluster = args['cluster']
+    replicas = args['replicas']
     app = get_app_raw(appname, [RBACAction.SCALE], cluster)
 
     with lock_app(appname):
@@ -1262,42 +1259,19 @@ def scale_app(args, appname):
 
         _check_deploy_info_error(k8s_deployment)
         deploy_info = json.loads(k8s_deployment.metadata.annotations[ANNO_DEPLOY_INFO])
-        version = k8s_deployment.metadata.resource_version
 
-        try:
-            cur_deploy_ver = DeployVersion.get(id=deploy_info['deploy_id'])
-        except:
-            logger.exception("can't get current deploy version")
-            return abort(500, "internal error")
-
-        specs = cur_deploy_ver.specs
-
-        # update current specs
-        replicas = args.get('replicas')
-        cpus = args.get('cpus')
-        memories = args.get('memories')
-        if not replicas:
-            replicas = k8s_deployment.spec.replicas
-
-        try:
-            specs = _update_specs(specs, cpus, memories, replicas)
-        except IndexError:
-            abort(403, "cpus or memories' index is larger than the number of containers")
-
-        if k8s_deployment.spec.template.metadata.annotations is None:
-            renew_id = None
-        else:
-            renew_id = k8s_deployment.spec.template.metadata.annotations.get("renew_id", None)
+        # if request replicas is equal to current replicas, ignore it
+        if replicas == k8s_deployment.spec.replicas:
+            return
 
         with handle_k8s_error("Error when scale app {}".format(appname)):
-            KubeApi.instance().update_app(appname, specs, cur_deploy_ver,
-                                          version=version, renew_id=renew_id, cluster_name=cluster)
+            KubeApi.instance().scale_app(appname, replicas, cluster_name=cluster)
     OPLog.create(
         username=g.user.username,
         app_id=app.id,
         appname=appname,
         cluster=cluster,
-        tag=cur_deploy_ver.tag,
+        tag=deploy_info.get("release_tag", None),
         action=OPType.SCALE_APP,
         content=f"scale app `{appname}`(replicas {replicas})"
     )

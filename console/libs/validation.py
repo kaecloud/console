@@ -204,19 +204,7 @@ class DeploySchema(StrictSchema):
 
 class ScaleSchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
-    cpus = fields.Dict(validate=validate_cpu_dict)
-    memories = fields.Dict(validate=validate_memory_dict)
-    replicas = fields.Int()
-
-    @validates_schema(pass_original=True)
-    def further_check(self, data, original_data):
-        if not original_data:
-            raise ValidationError('Must provide username, user_id or email, got nothing')
-        cpus = data.get("cpus")
-        memories = data.get("memories")
-        replicas = data.get("replicas")
-        if not (cpus or memories or replicas):
-            raise ValidationError('you must at least specify one of cpu, memory, replica ')
+    replicas = fields.Int(required=True, validate=validate_positive_integer)
 
 
 class BuildArgsSchema(StrictSchema):
