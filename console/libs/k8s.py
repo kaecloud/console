@@ -294,12 +294,11 @@ class KaeCluster(object):
             if not (e.status == 404 and ignore_404 is True):
                 raise e
 
-    def create_or_update_config_map(self, appname, config_id, cm_data, replace=True):
+    def create_or_update_config_map(self, appname, config_id, cm_data):
         """
         create or update configmap for specfied app
         :param appname:
         :param cm_data: configmap data dict
-        :param replace: if it set to True, the existing configmap data is replaced by cm_data, otherwise cm_data is merged to the exising data
         :return:
         """
         obj = {
@@ -314,10 +313,6 @@ class KaeCluster(object):
             "data": cm_data,
         }
         try:
-            cmap = self.core_api.read_namespaced_config_map(name=appname, namespace=self.namespace)
-            if replace is True:
-                cmap.data.update(cm_data)
-                obj["data"] = cmap.data
             self.core_api.replace_namespaced_config_map(name=appname, namespace=self.namespace, body=obj)
         except ApiException as e:
             if e.status == 404:
@@ -467,7 +462,7 @@ class KaeCluster(object):
         # step 1: create configmap if neccessary
         app_cfg = deploy_ver.app_config
         if app_cfg is not None and ignore_config is False:
-            self.create_or_update_config_map(app_cfg.appname, app_cfg.id, app_cfg.data_dict, replace=True)
+            self.create_or_update_config_map(app_cfg.appname, app_cfg.id, app_cfg.data_dict)
 
         dp = self._create_deployment_dict(spec, annotations=dp_annotations)
         svc = self._create_service_dict(spec)
@@ -494,7 +489,7 @@ class KaeCluster(object):
         canary_appname = make_canary_appname(spec['appname'])
 
         if app_cfg is not None and ignore_config is False:
-            self.create_or_update_config_map(canary_appname, app_cfg.id, app_cfg.data_dict, replace=True)
+            self.create_or_update_config_map(canary_appname, app_cfg.id, app_cfg.data_dict)
         dp_annotations = {
             'spec': yaml.dump(spec_copy.to_dict()),
             'release_tag': release_tag,
@@ -646,7 +641,7 @@ class KaeCluster(object):
         # change configmap if necessary
         app_cfg = deploy_ver.app_config
         if app_cfg is not None:
-            self.create_or_update_config_map(app_cfg.appname, app_cfg.id, app_cfg.data_dict, replace=True)
+            self.create_or_update_config_map(app_cfg.appname, app_cfg.id, app_cfg.data_dict)
         # replace deployment
         d = self._create_deployment_dict(spec, version=version, annotations=dp_annotations)
         self.apps_api.replace_namespaced_deployment(name=appname, namespace=self.namespace, body=d)
@@ -873,7 +868,7 @@ class KaeCluster(object):
         pod_spec.restartPolicy = restart_policy
         return pod_spec
 
-    def _create_deployment_dict(self, spec, version=None, renew_id=None, annotations=None, canary=False):
+    def _create_deployment_dict(self, spec, version=None, annotations=None, canary=False):
         if canary:
             appname = make_canary_appname(spec['appname'])
         else:
@@ -925,8 +920,6 @@ class KaeCluster(object):
 
         if version is not None:
             obj.metadata.resourceVersion = str(version)
-        if renew_id is not None:
-            obj.spec.template.metadata.annotations['renew_id'] = renew_id
         if 'minReadySeconds' in svc.minReadySeconds:
             obj.spec.minReadySeconds = svc.minReadySeconds
         if 'progressDeadlineSeconds' in svc.progressDeadlineSeconds:
