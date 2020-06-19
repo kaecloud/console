@@ -56,6 +56,14 @@ class KubeError(Exception):
         return self.msg
 
 
+class K8sNotExistError(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+
+    def __str__(self):
+        return self.msg
+
+
 class KubeApi(object):
     _INSTANCE = None
     ALL_CLUSTER = "__all_cluster__"
@@ -63,7 +71,6 @@ class KubeApi(object):
     def __init__(self):
         self.k8s_api_map = {}
         self.kae_cluster_map = {}
-        self._load_multiple_clients()
 
     @classmethod
     def instance(cls):
@@ -78,49 +85,57 @@ class KubeApi(object):
     def cluster_exist(self, cluster_name):
         return cluster_name in CLUSTER_CFG
 
-    def _load_multiple_clients(self):
-        # get k8s clusters
-        if os.path.exists(os.path.expanduser("~/.kube/config")):
-            contexts, active_context = config.list_kube_config_contexts()
-            if not contexts:
-                raise Exception("no context in kubeconfig")
+    def _load_k8s_client(self, name):
+        if name not in self.k8s_api_map:
+            # get k8s clusters
+            if os.path.exists(os.path.expanduser("~/.kube/config")):
+                contexts, active_context = config.list_kube_config_contexts()
+                if not contexts:
+                    raise Exception("no context in kubeconfig")
 
-            contexts = [context['name'] for context in contexts]
-            for ctx in contexts:
+                ctx_names = [context['name'] for context in contexts]
+                if name not in ctx_names:
+                    raise K8sNotExistError(f"k8s context {name} not exist")
+
                 api_map = {}
                 api_map['core_v1_api'] = client.CoreV1Api(
-                    api_client=config.new_client_from_config(context=ctx))
+                    api_client=config.new_client_from_config(context=name))
                 api_map['apps_v1_api'] = client.AppsV1Api(
-                    api_client=config.new_client_from_config(context=ctx))
+                    api_client=config.new_client_from_config(context=name))
                 api_map['extensions_v1beta1_api'] = client.ExtensionsV1beta1Api(
-                    api_client=config.new_client_from_config(context=ctx))
+                    api_client=config.new_client_from_config(context=name))
                 api_map['scale_v2beta2_api'] = client.AutoscalingV2beta2Api(
-                    api_client=config.new_client_from_config(context=ctx))
-                self.k8s_api_map[ctx] = api_map
-        else:
-            config.load_incluster_config()
-            api_map = {
-                'core_v1_api': client.CoreV1Api(),
-                'apps_v1_api': client.AppsV1Api(),
-                'extensions_v1beta1_api': client.ExtensionsV1beta1Api(),
-                'scale_v2beta2_api': client.AutoscalingV2beta2Api(),
-            }
-            self.k8s_api_map['incluster'] = api_map
+                    api_client=config.new_client_from_config(context=name))
+                self.k8s_api_map[name] = api_map
+            else:
+                if name != "incluster":
+                    raise K8sNotExistError(f"k8s context {name} not exist")
+                config.load_incluster_config()
+                api_map = {
+                    'core_v1_api': client.CoreV1Api(),
+                    'apps_v1_api': client.AppsV1Api(),
+                    'extensions_v1beta1_api': client.ExtensionsV1beta1Api(),
+                    'scale_v2beta2_api': client.AutoscalingV2beta2Api(),
+                }
+                self.k8s_api_map['incluster'] = api_map
+        return self.k8s_api_map[name]
 
-        # get kae clusters
-        for name, cluster_info in CLUSTER_CFG.items():
+    def _load_kae_cluster(self, name):
+        if name not in self.kae_cluster_map:
+            cluster_info = CLUSTER_CFG[name]
+            k8s_name = cluster_info["k8s"]
+            k8s_namespace = cluster_info["namespace"]
             try:
-                k8s_name = cluster_info["k8s"]
-                k8s_namespace = cluster_info["namespace"]
-                k8s_cluster = self.k8s_api_map[k8s_name]
+                k8s_cluster = self._load_k8s_client(k8s_name)
                 self.kae_cluster_map[name] = KaeCluster(name, k8s_namespace, **k8s_cluster)
-            except KeyError:
-                raise KubeError(f"kae cluster {name} does not contain correct k8s")
+            except K8sNotExistError:
+                raise KubeError(f"kae cluster {name}'s k8s {k8s_name} doesn't exist")
+        return self.kae_cluster_map[name]
 
     def __getattr__(self, item):
         def wrapper(*args, **kwargs):
             def _exec_on_single_cluster(name):
-                kae_cluster = self.kae_cluster_map.get(name)
+                kae_cluster = self._load_kae_cluster(name)
                 func = getattr(kae_cluster, item)
                 return func(*args, **kwargs)
 
