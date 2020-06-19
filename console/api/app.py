@@ -33,7 +33,7 @@ from console.libs.k8s import KubeApi, KubeError, ANNO_DEPLOY_INFO, ANNO_CONFIG_I
 from console.libs.k8s import ApiException
 from console.config import (
     DEFAULT_REGISTRY, IM_WEBHOOK_CHANNEL,
-    TASK_PUBSUB_CHANNEL, TASK_PUBSUB_EOF, PROTECTED_CLUSTER
+    TASK_PUBSUB_CHANNEL, TASK_PUBSUB_EOF,
 )
 from console.ext import rds
 
