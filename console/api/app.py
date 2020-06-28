@@ -52,7 +52,8 @@ def fix_app_spec(spec, appname, tag):
     :param tag:
     :return:
     """
-    spec['appname'] = appname
+    if spec['appname'] != appname:
+        raise ValidationError(f"spec's appname should be {appname}. but got {spec['appname']}")
     svc = spec["service"]
 
     registry = svc.get('registry', None)
