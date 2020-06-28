@@ -1429,7 +1429,10 @@ def deploy_app(args, appname):
                 # such as create a configmap in new version, but don't create deployment in correspond version
                 k8s_configmap = KubeApi.instance().get_config_map(appname, cluster_name=cluster, raw=True, ignore_404=True)
                 if k8s_configmap is not None:
-                    config_id_in_configmap = int(k8s_configmap.metadata.annotations[ANNO_CONFIG_ID])
+                    config_id_in_configmap_str = k8s_configmap.metadata.annotations[ANNO_CONFIG_ID]
+                    if config_id_in_configmap_str is None:
+                        abort(403, f"there exists an configmap({appname}) which is not created by KAE, please contact administrator")
+                    config_id_in_configmap = int(config_id_in_configmap_str)
                     if config_id != config_id_in_configmap:
                         logger.error(f"config id in deployment and configmap is not same({config_id}: {config_id_in_configmap}")
                         abort(500, "config id in deployment and configmap are not same, this is a serious problem, please contact administrator.")
