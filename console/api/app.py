@@ -759,7 +759,7 @@ def update_release_spec(args, appname, tag):
     specs_text = args['specs_text']
     # check the format of specs
     try:
-        yaml_dict = yaml.load(specs_text)
+        yaml_dict = yaml.safe_load(specs_text)
         # we can't change the builds part of the spec
         yaml_dict['builds'] = release.specs_dict['builds']
     except yaml.YAMLError as e:
@@ -1075,7 +1075,7 @@ def create_app_yaml(args, appname):
 
     # check the format of specs
     try:
-        yaml_dict = yaml.load(specs_text)
+        yaml_dict = yaml.safe_load(specs_text)
     except yaml.YAMLError as e:
         return abort(400, 'specs text is invalid yaml {}'.format(str(e)))
     try:
@@ -1109,7 +1109,7 @@ def update_app_yaml(args, appname, name):
     comment = args.get('comment', '')
     # check the format of specs
     try:
-        yaml_dict = yaml.load(specs_text)
+        yaml_dict = yaml.safe_load(specs_text)
     except yaml.YAMLError as e:
         return abort(400, 'specs text is invalid yaml {}'.format(str(e)))
     try:
@@ -1203,7 +1203,7 @@ def register_release(args):
     clusters = get_safe_cluster_names(clusters)
     # check the format of specs
     try:
-        yaml_dict = yaml.load(specs_text)
+        yaml_dict = yaml.safe_load(specs_text)
     except yaml.YAMLError as e:
         return abort(400, 'specs text is invalid yaml {}'.format(str(e)))
     try:

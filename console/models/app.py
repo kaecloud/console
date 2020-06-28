@@ -114,7 +114,7 @@ class Release(BaseModelMixin):
         appname = app.name
 
         # check the format of specs text(ignore the result)
-        app_specs_schema.load(yaml.load(specs_text))
+        app_specs_schema.load(yaml.safe_load(specs_text))
         misc = {
             'author': author,
             'commit_message': commit_message,
@@ -135,7 +135,7 @@ class Release(BaseModelMixin):
     def update(self, specs_text, image=None, build_status=False, branch='', author='', commit_message=''):
         """app must be an App instance"""
         # check the format of specs text(ignore the result)
-        app_specs_schema.load(yaml.load(specs_text))
+        app_specs_schema.load(yaml.safe_load(specs_text))
         misc = {
             'author': author,
             'commit_message': commit_message,
@@ -209,13 +209,13 @@ class Release(BaseModelMixin):
 
     @cached_property
     def specs(self):
-        dic = yaml.load(self.specs_text)
+        dic = yaml.safe_load(self.specs_text)
         unmarshal_result = app_specs_schema.load(dic)
         return unmarshal_result.data
 
     @cached_property
     def specs_dict(self):
-        return yaml.load(self.specs_text)
+        return yaml.safe_load(self.specs_text)
 
     @property
     def service(self):
@@ -249,7 +249,7 @@ class AppYaml(BaseModelMixin):
         appname = app.name
 
         # check the format of specs text(ignore the result)
-        app_specs_schema.load(yaml.load(specs_text))
+        app_specs_schema.load(yaml.safe_load(specs_text))
 
         try:
             new_yaml = cls(name=name, app_id=app.id, specs_text=specs_text, comment=comment)
@@ -281,7 +281,7 @@ class AppYaml(BaseModelMixin):
 
     @cached_property
     def specs(self):
-        dic = yaml.load(self.specs_text)
+        dic = yaml.safe_load(self.specs_text)
         unmarshal_result = app_specs_schema.load(dic)
         return unmarshal_result.data
 
@@ -308,7 +308,7 @@ class DeployVersion(BaseModelMixin):
             specs_text = yaml.dump(specs_text)
         else:
             # check the format of specs text(ignore the result)
-            app_specs_schema.load(yaml.load(specs_text))
+            app_specs_schema.load(yaml.safe_load(specs_text))
 
         try:
             ver = cls(tag=tag, app_id=app.id, parent_id=parent_id, cluster=cluster, config_id=config_id, specs_text=specs_text)
@@ -364,7 +364,7 @@ class DeployVersion(BaseModelMixin):
 
     @cached_property
     def specs(self):
-        dic = yaml.load(self.specs_text)
+        dic = yaml.safe_load(self.specs_text)
         unmarshal_result = app_specs_schema.load(dic)
         return unmarshal_result.data
 
