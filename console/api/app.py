@@ -397,8 +397,8 @@ def rollback_app(args, appname):
             specs.service.replicas = k8s_deployment.spec.replicas
 
         with handle_k8s_error('Error when update app({}:{})'.format(appname, version)):
-            KubeApi.instance().rollback_app(
-                appname, specs, previous_ver,
+            KubeApi.instance().deploy_app(
+                specs, previous_ver,
                 cluster_name=cluster, version=version)
 
     OPLog.create(
