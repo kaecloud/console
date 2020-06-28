@@ -106,6 +106,8 @@ class KubeApi(object):
                     api_client=config.new_client_from_config(context=name))
                 api_map['scale_v2beta2_api'] = client.AutoscalingV2beta2Api(
                     api_client=config.new_client_from_config(context=name))
+                api_map['custom_obj_api'] = client.CustomObjectsApi(
+                    api_client=config.new_client_from_config(context=name))
                 self.k8s_api_map[name] = api_map
             else:
                 if name != "incluster":
@@ -116,6 +118,7 @@ class KubeApi(object):
                     'apps_v1_api': client.AppsV1Api(),
                     'extensions_v1beta1_api': client.ExtensionsV1beta1Api(),
                     'scale_v2beta2_api': client.AutoscalingV2beta2Api(),
+                    'custom_obj_api': client.CustomObjectsApi(),
                 }
                 self.k8s_api_map['incluster'] = api_map
         return self.k8s_api_map[name]
@@ -179,6 +182,10 @@ class KaeCluster(object):
     @property
     def extensions_api(self):
         return self.api_map['extensions_v1beta1_api']
+
+    @property
+    def custom_api(self):
+        return self.api_map['custom_obj_api']
 
     def get_pods(self, label_selector):
         return self.core_api.list_namespaced_pod(namespace=self.namespace, label_selector=label_selector)
@@ -309,29 +316,18 @@ class KaeCluster(object):
             if not (e.status == 404 and ignore_404 is True):
                 raise e
 
-    def create_or_update_config_map(self, appname, config_id, cm_data):
+    def apply_config_map(self, appname, config_id, cm_data):
         """
         create or update configmap for specfied app
         :param appname:
         :param cm_data: configmap data dict
         :return:
         """
-        obj = {
-            "apiVersion": "v1",
-            "kind": "ConfigMap",
-            "metadata": {
-                "name": appname,
-                "annotations": {
-                    ANNO_CONFIG_ID: str(config_id),
-                }
-            },
-            "data": cm_data,
-        }
         try:
-            self.core_api.replace_namespaced_config_map(name=appname, namespace=self.namespace, body=obj)
+            self.update_config_map(appname, config_id, cm_data)
         except ApiException as e:
             if e.status == 404:
-                self.core_api.create_namespaced_config_map(namespace=self.namespace, body=obj)
+                self.create_config_map(appname, config_id, cm_data)
             else:
                 raise e
 
@@ -354,8 +350,36 @@ class KaeCluster(object):
             else:
                 raise e
 
-    def delete_config_map(self, appname):
-        self.core_api.delete_namespaced_config_map(name=appname, namespace=self.namespace, body=client.V1DeleteOptions())
+    def _create_or_update_config_map(self, appname, config_id, cm_data, is_update=False):
+        obj = {
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {
+                "name": appname,
+                "annotations": {
+                    ANNO_CONFIG_ID: str(config_id),
+                }
+            },
+            "data": cm_data,
+        }
+        if is_update:
+            self.core_api.replace_namespaced_config_map(name=appname, namespace=self.namespace, body=obj)
+        else:
+            self.core_api.create_namespaced_config_map(namespace=self.namespace, body=obj)
+
+    def create_config_map(self, appname, config_id, cm_data):
+        return self._create_or_update_config_map(appname, config_id, cm_data, False)
+
+    def update_config_map(self, appname, config_id, cm_data):
+        return self._create_or_update_config_map(appname, config_id, cm_data, True)
+
+    def delete_config_map(self, appname, ignore_404=False):
+        try:
+            self.core_api.delete_namespaced_config_map(name=appname, namespace=self.namespace,
+                                                       body=client.V1DeleteOptions())
+        except ApiException as e:
+            if not (e.status == 404 and ignore_404 is True):
+                raise e
 
     def create_or_update_secret(self, appname, secrets, replace=True):
         """
@@ -403,8 +427,13 @@ class KaeCluster(object):
 
         return secrets
 
-    def delete_secret(self, appname):
-        self.core_api.delete_namespaced_secret(name=appname, namespace=self.namespace, body=client.V1DeleteOptions())
+    def delete_secret(self, appname, ignore_404=False):
+        try:
+            self.core_api.delete_namespaced_secret(name=appname, namespace=self.namespace,
+                                                   body=client.V1DeleteOptions())
+        except ApiException as e:
+            if not (e.status == 404 and ignore_404 is True):
+                raise e
 
     def apply(self, d):
         """
@@ -469,7 +498,7 @@ class KaeCluster(object):
         deployment.spec.template.metadata.annotations['renew_id'] = id_generator(10)
         self.apps_api.replace_namespaced_deployment(name=appname, namespace=self.namespace, body=deployment)
 
-    def deploy_app(self, spec, deploy_ver, ignore_config=False):
+    def deploy_app(self, spec, deploy_ver, version=None, ignore_config=False):
         ing = None
         dp_annotations = {
             ANNO_DEPLOY_INFO: json.dumps(deploy_ver.to_k8s_annotation()),
@@ -477,9 +506,11 @@ class KaeCluster(object):
         # step 1: create configmap if neccessary
         app_cfg = deploy_ver.app_config
         if app_cfg is not None and ignore_config is False:
-            self.create_or_update_config_map(app_cfg.appname, app_cfg.id, app_cfg.data_dict)
+            self.apply_config_map(app_cfg.appname, app_cfg.id, app_cfg.data_dict)
+        else:
+            self.delete_config_map(spec.appname, ignore_404=True)
 
-        dp = self._create_deployment_dict(spec, annotations=dp_annotations)
+        dp = self._create_deployment_dict(spec, version=version, annotations=dp_annotations)
         svc = self._create_service_dict(spec)
 
         if spec.type == "web":
@@ -495,6 +526,9 @@ class KaeCluster(object):
         else:
             # delete any exist HPA
             self.delete_hpa(spec.appname, ignore_404=True)
+        monitor = spec.service.monitor
+        if monitor:
+            self.apply_service_monitor(spec.appname, monitor)
 
     def deploy_app_canary(self, spec, release_tag, app_cfg=None, ignore_config=False):
         """
@@ -503,8 +537,12 @@ class KaeCluster(object):
         spec_copy = copy.deepcopy(spec)
         canary_appname = make_canary_appname(spec['appname'])
 
+        # create or delete ConfigMap if neccessary
         if app_cfg is not None and ignore_config is False:
-            self.create_or_update_config_map(canary_appname, app_cfg.id, app_cfg.data_dict)
+            self.apply_config_map(canary_appname, app_cfg.id, app_cfg.data_dict)
+        else:
+            self.delete_config_map(canary_appname, ignore_404=True)
+
         dp_annotations = {
             'spec': yaml.dump(spec_copy.to_dict()),
             'release_tag': release_tag,
@@ -643,30 +681,7 @@ class KaeCluster(object):
         except ApiException as e:
             if e.status != 404:
                 raise e
-        try:
-            self.delete_config_map(canary_appname)
-        except ApiException as e:
-            if e.status != 404:
-                raise e
-
-    def rollback_app(self, appname, spec, deploy_ver, version=None):
-        dp_annotations = {
-            ANNO_DEPLOY_INFO: json.dumps(deploy_ver.to_k8s_annotation()),
-        }
-        # change configmap if necessary
-        app_cfg = deploy_ver.app_config
-        if app_cfg is not None:
-            self.create_or_update_config_map(app_cfg.appname, app_cfg.id, app_cfg.data_dict)
-        # replace deployment
-        d = self._create_deployment_dict(spec, version=version, annotations=dp_annotations)
-        self.apps_api.replace_namespaced_deployment(name=appname, namespace=self.namespace, body=d)
-        # create HPA if neccessary
-        hpa_data = spec.service.hpa
-        if hpa_data:
-            self.create_hpa(spec.appname, hpa_data)
-        else:
-            # delete any exist HPA
-            self.delete_hpa(spec.appname, ignore_404=True)
+        self.delete_config_map(canary_appname, ignore_404=True)
 
     def undeploy_app(self, appname, apptype, ignore_404=False):
         self.undeploy_app_canary(appname)
@@ -705,16 +720,10 @@ class KaeCluster(object):
             if not (e.status == 404 and ignore_404 is True):
                 raise e
 
-        try:
-            self.delete_secret(appname)
-        except ApiException as e:
-            if e.status != 404:
-                raise e
-        try:
-            self.delete_config_map(appname)
-        except ApiException as e:
-            if e.status != 404:
-                raise e
+        self.delete_secret(appname, ignore_404=True)
+        self.delete_config_map(appname, ignore_404=True)
+        # delete ServiceMonitor
+        self.delete_service_monitor(appname, ignore_404=True)
 
     def get_deployment(self, name, ignore_404=False):
         """
@@ -743,6 +752,65 @@ class KaeCluster(object):
         except ApiException as e:
             if e.status == 404 and ignore_404 is True:
                 return None
+            else:
+                raise e
+
+    def apply_service_monitor(self, appname, monitor_spec):
+        try:
+            return self.update_service_monitor(appname, monitor_spec)
+        except ApiException as e:
+            if e.status == 404:
+                return self.create_service_monitor(appname, monitor_spec)
+            else:
+                raise e
+
+    def _create_or_update_service_monitor(self, appname, monitor_spec, is_update=False):
+        """
+        create ServiceMonitor for prometheus operator
+        :param appname:
+        :return:
+        """
+        group = "monitoring.coreos.com"
+        version = "v1"
+        plural = "servicemonitors"
+        body = {
+            "apiVersion": "monitoring.coreos.com/v1",
+            "kind": "ServiceMonitor",
+            "metadata": {
+                "name": appname,
+            },
+            "spec": {
+                "selector": {
+                    "matchLabels": {
+                        "kae-app-name": appname,
+                    }
+                },
+                "namespaceSelector": {
+                    "matchNames": [self.namespace],
+                },
+                "endpoints": monitor_spec.endpoints,
+            }
+        }
+        if is_update:
+            return self.custom_api.replace_namespaced_custom_object(group, version, self.namespace, plural, appname, body)
+        else:
+            return self.custom_api.create_namespaced_custom_object(group, version, self.namespace, plural, body)
+
+    def create_service_monitor(self, appname, monitor_spec):
+        return self._create_or_update_service_monitor(appname, monitor_spec, False)
+
+    def update_service_monitor(self, appname, monitor_spec):
+        return self._create_or_update_service_monitor(appname, monitor_spec, True)
+
+    def delete_service_monitor(self, appname, ignore_404=False):
+        group = "monitoring.coreos.com"
+        version = "v1"
+        plural = "servicemonitors"
+        try:
+            return self.custom_api.delete_namespaced_custom_object(group, version, self.namespace, plural, appname)
+        except ApiException as e:
+            if e.status == 404 and ignore_404 is True:
+                return
             else:
                 raise e
 
