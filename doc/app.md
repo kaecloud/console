@@ -39,7 +39,8 @@ service:
     - /static
     tlsSecret: haha            # name of the secret which contains certification, ignore it if app needn't support https
   ports:                     # ports exposed in kubernetes service
-  - port: 80           # service port (required)
+  - name: xxx          # service port name
+    port: 80           # service port (required)
     targetPort: 8080   # container port, equal to port if not specified
     protocol: TCP      # TCP and UDP are allowed, default is TCP
   hpa:                 # HPA
