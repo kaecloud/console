@@ -329,9 +329,9 @@ def build_image_helper(appname, release):
     for line in iter(p.stdout.readline, ""):
         if not line:
             break
+        # please note: line contains \n
         if isinstance(line, bytes):
             line = line.decode('utf8')
-        line = line.strip(" \n")
         yield make_msg("Cloning", msg=line)
     p.wait()
     if p.returncode:
@@ -370,16 +370,34 @@ def build_image_helper(appname, release):
             for line in client.build(**build_args_dict):
                 output_dict = json.loads(line.decode('utf8'))
                 if 'stream' in output_dict:
-                    yield make_msg("Building", raw_data=output_dict, msg=output_dict['stream'].rstrip("\n"))
+                    # please note: don't  append \n to the end of msg, 
+                    #       because output_dict['stream'] may be just part of a line.
+                    yield make_msg("Building", raw_data=output_dict, msg=output_dict['stream'])
         except docker.errors.APIError as e:
             raise BuildError(make_msg("Building", success=False, error="Building error: {}".format(str(e))))
+
+        # push image
         try:
             for line in client.push(full_image_name, stream=True):
                 output_dict = json.loads(line.decode('utf8'))
-                msg = "{}:{}\n".format(output_dict.get('id'), output_dict.get('status'))
-                yield make_msg("Pushing", raw_data=output_dict, msg=msg.rstrip("\n"))
+
+                if len(output_dict) == 1 and 'status' in output_dict:
+                    msg = output_dict['status']+"\n"
+                elif 'id' in output_dict and 'status' in output_dict:
+                    # TODO: make the output like docker push
+                    # format output like:
+                    #   'b'{"status":"Preparing","progressDetail":{},"id":"89928fe4fc01"}\r\n''
+                    msg = f"{output_dict['id']}:{output_dict['status']}\n"
+                elif 'digest' in output_dict:
+                    # format output like:
+                    #    'b'{"status":"v0.1.5: digest: sha256:30fbf6b9db64c79751b7bf1f98b2ddfc630dead7f0016f764f752cecabcc72fa size: 1996"}\r\n''
+                    msg = "{}: digest: {} size: {}\n".format(output_dict.get('status'), output_dict['digest'], output_dict.get('size'))
+                else:
+                    msg = f"{line.decode('utf8')}\n"
+
+                yield make_msg("Pushing", raw_data=output_dict, msg=msg)
         except docker.errors.APIError as e:
             raise BuildError(make_msg("Pushing", success=False, error="pushing error: {}".format(str(e))))
-        logger.debug("=========", full_image_name)
+        logger.debug(f"========={full_image_name}")
     yield make_msg("Finished", msg="build app {}'s release {} successfully".format(appname, git_tag))
 

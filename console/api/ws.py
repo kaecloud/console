@@ -226,7 +226,7 @@ def build_app(socket, appname):
             return False
         if phase != m['phase']:
             phase = m['phase']
-            total_msg.append("***** PHASE {}".format(m['phase']))
+            total_msg.append("***** PHASE {}\n".format(m['phase']))
 
         raw_data = m.get('raw_data', None)
         if raw_data is None:
@@ -235,18 +235,8 @@ def build_app(socket, appname):
             total_msg.append((str(raw_data)))
             return False
 
-        if phase.lower() == "pushing":
-            if len(raw_data) == 1 and 'status' in raw_data:
-                total_msg.append(raw_data['status'])
-            elif 'id' in raw_data and 'status' in raw_data:
-                # TODO: make the output like docker push
-                total_msg.append("{}:{}".format(raw_data['id'], raw_data['status']))
-            elif 'digest' in raw_data:
-                total_msg.append("{}: digest: {} size: {}".format(raw_data.get('status'), raw_data['digest'], raw_data.get('size')))
-            else:
-                total_msg.append(str(m))
-        else:
-            total_msg.append(m['msg'])
+        total_msg.append(m['msg'])
+
         return True
 
     while True:
@@ -355,7 +345,7 @@ def build_app(socket, appname):
     <pre>{}</pre>
   </div>
 </div>'''
-                email_text = email_text_tpl.format(text_title, html.escape("\n".join(total_msg)) + '\n' + build_result_text)
+                email_text = email_text_tpl.format(text_title, html.escape("".join(total_msg)) + '\n' + build_result_text)
                 # TODO better way to get users to send email
                 email_list = [u.email for u in app.subscriber_list if 'email' in u]
                 if len(email_list) > 0:
