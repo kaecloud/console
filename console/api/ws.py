@@ -215,27 +215,30 @@ def build_app(socket, appname):
 
     phase = ""
 
-    def handle_msg(ss):
+    def handle_msg(ss, collect_msg=True):
         nonlocal phase
         try:
             m = json.loads(ss)
         except:
             return False
         if m['success'] is False:
-            total_msg.append(m['error'])
+            if collect_msg:
+                total_msg.append(m['error'])
             return False
         if phase != m['phase']:
             phase = m['phase']
-            total_msg.append("***** PHASE {}\n".format(m['phase']))
+            if collect_msg:
+                total_msg.append("***** PHASE {}\n".format(m['phase']))
 
         raw_data = m.get('raw_data', None)
         if raw_data is None:
             raw_data = {}
         if raw_data.get('error', None):
-            total_msg.append((str(raw_data)))
+            if collect_msg:
+                total_msg.append((str(raw_data)))
             return False
-
-        total_msg.append(m['msg'])
+        if collect_msg:
+            total_msg.append(m['msg'])
 
         return True
 
@@ -364,7 +367,7 @@ def build_app(socket, appname):
                     if m is None:
                         socket.send(make_errmsg("doesn't receive any messages in last 15 minutes, build task for app {} seems to be stuck".format(appname), jsonize=True))
                         break
-                    if handle_msg(m) is False:
+                    if handle_msg(m, False) is False:
                         break
                     if client_closed is False:
                         socket.send(m)
