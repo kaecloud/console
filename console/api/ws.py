@@ -351,7 +351,7 @@ def build_app(socket, appname):
                 if len(email_list) > 0:
                     send_email(email_list, subject, email_text)
         else:
-            socket.send(make_msg("Unknown", msg="there seems exist another build task, try to fetch output", jsonize=True))
+            socket.send(make_msg("Unknown", msg="there seems exist another build task, try to fetch output\n", jsonize=True))
             build_task_id = rds.hget(app_redis_key, "build-task-id")
             if not build_task_id:
                 socket.send(make_errmsg("can't get build task id", jsonize=True))
