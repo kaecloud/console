@@ -17,7 +17,7 @@ from console.libs.validation import (
     RegisterSchema, CreateAppArgsSchema, RollbackSchema, SecretArgsSchema, ConfigMapArgsSchema,
     ScaleSchema, DeploySchema, ClusterArgSchema, OptionalClusterArgSchema, ABTestingSchema,
     ClusterCanarySchema, SpecsArgsSchema, AppYamlArgsSchema, PaginationSchema, PodLogArgsSchema,
-    PodEntryArgsSchema, AppCanaryWeightArgSchema,
+    PodEntryArgsSchema, AppCanaryWeightArgSchema, GetPodEventsSchema,
 )
 
 from console.libs.utils import (
@@ -583,6 +583,23 @@ def get_app_pods(args, appname):
 
     with handle_k8s_error("Error when get app pods ({})".format(appname)):
         return KubeApi.instance().get_app_pods(name=name, cluster_name=cluster)
+
+
+@bp.route('/<appname>/pods/<podname>')
+@use_args(GetPodEventsSchema(), location="query")
+@user_require(True)
+def get_pod_events(args, appname, podname):
+    """
+    Get pod events
+    """
+    cluster = args['cluster']
+    podname = args['podname']
+    uid = args['uid']
+
+    get_app_raw(appname, [RBACAction.GET], cluster)
+
+    with handle_k8s_error(f"Error when get app {appname}'s pod {podname}'s events"):
+        return KubeApi.instance().list_pod_events(podname=podname, uid=uid, cluster_name=cluster)
 
 
 @bp.route('/<appname>/deployment')

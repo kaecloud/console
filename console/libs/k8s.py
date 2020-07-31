@@ -201,6 +201,10 @@ class KaeCluster(object):
         for line in iter_resp_lines(resp):
             yield line
 
+    def list_pod_events(self, podname, uid):
+        field_selector = f"involvedObject.name={podname},involvedObject.namespace={self.namespace},involvedObject.uid={uid}"
+        return self.core_api.list_namespaced_event(namespace=self.namespace, field_selector=field_selector)
+
     def get_app_pods(self, name):
         label_selector = "kae-app-name={}".format(name)
         return self.core_api.list_namespaced_pod(namespace=self.namespace, label_selector=label_selector)

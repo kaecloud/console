@@ -229,6 +229,12 @@ class ClusterCanarySchema(StrictSchema):
     canary = fields.Bool(missing=False)
 
 
+class GetPodEventsSchema(StrictSchema):
+    cluster = fields.Str(required=True, validate=validate_cluster_name)
+    podname = fields.Str(required=True)
+    uid = fields.Str(required=True)
+
+
 class AppCanaryWeightArgSchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
     weight = fields.Int(required=True, validate=validate_weight)
