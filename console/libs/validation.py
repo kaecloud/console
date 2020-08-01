@@ -231,7 +231,7 @@ class ClusterCanarySchema(StrictSchema):
 
 class GetPodEventsSchema(StrictSchema):
     cluster = fields.Str(required=True, validate=validate_cluster_name)
-    podname = fields.Str(required=True)
+    # podname = fields.Str(required=True)
     uid = fields.Str(required=True)
 
 
