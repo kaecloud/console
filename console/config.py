@@ -88,7 +88,6 @@ KEYCLOAK_ADMIN_PASSWD = ""
 EMAIL_DOMAIN = getenv('EMAIL_DOMAIN')
 BOT_WEBHOOK_URL = getenv('BOT_WEBHOOK_URL')
 IM_WEBHOOK_CHANNEL = 'platform'
-IM_WEBHOOK_TOKEN = ''
 
 DEFAULT_REGISTRY = "registry.cn-hangzhou.aliyuncs.com/kae"
 REGISTRY_AUTHS = {

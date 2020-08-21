@@ -25,7 +25,7 @@ from functools import wraps
 from console.config import (
     BOT_WEBHOOK_URL, LOGGER_NAME, DEBUG, DEFAULT_REGISTRY,
     REPO_DATA_DIR, EMAIL_SENDER, EMAIL_SENDER_PASSWOORD,
-    CLUSTER_CFG, PROTECTED_CLUSTER, DOCKER_HOST, IM_WEBHOOK_TOKEN,
+    CLUSTER_CFG, PROTECTED_CLUSTER, DOCKER_HOST, 
 )
 from console.libs.jsonutils import VersatileEncoder
 
@@ -150,8 +150,6 @@ def im_sendmsg(to, content):
         "text": content,
         "group": to,
     }
-    if IM_WEBHOOK_TOKEN:
-        data['token'] = IM_WEBHOOK_TOKEN
     headers = {
         'Connection': 'close',
     }
