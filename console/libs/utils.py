@@ -397,5 +397,19 @@ def build_image_helper(appname, release):
         except docker.errors.APIError as e:
             raise BuildError(make_msg("Pushing", success=False, error="pushing error: {}".format(str(e))))
         logger.debug(f"========={full_image_name}")
+
+        # create latest tag for image and push this tag to registry
+        latest_image_name = "{}:latest".format(image_name_no_tag)
+        tagged = client.tag(full_image_name, image_name_no_tag, "latest", True)
+        if not tagged:
+            logger.warning(f"Can't create latest tag for image {full_image_name}")
+        else:
+            try:
+                client.push(latest_image_name)
+            except docker.errors.APIError as e:
+                logger.exception("Can't push latest image to registry.")
     yield make_msg("Finished", msg="build app {}'s release {} successfully".format(appname, git_tag))
 
+
+def create_grafana_dashboard_for_app(app):
+    pass
