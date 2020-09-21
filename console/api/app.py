@@ -1481,7 +1481,7 @@ def deploy_app(args, appname):
                 config_id = newest_cfg.id
 
         try:
-            deploy_ver = DeployVersion.create(app, tag, specs, parent_id=exist_deploy_id, cluster=cluster, config_id=config_id)
+            deploy_ver = DeployVersion.create(app, tag, app_yaml.name, specs, parent_id=exist_deploy_id, cluster=cluster, config_id=config_id)
         except:
             logger.exception("can't create deploy version")
             abort(500, "internal server error")

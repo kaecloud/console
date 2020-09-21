@@ -287,7 +287,6 @@ class AppYaml(BaseModelMixin):
 
 
 class DeployVersion(BaseModelMixin):
-    # TODO use ForeignKey
     # git tag
     tag = db.Column(db.CHAR(64), nullable=False, index=True)
     app_id = db.Column(db.Integer, nullable=False)
@@ -295,12 +294,13 @@ class DeployVersion(BaseModelMixin):
     cluster = db.Column(db.CHAR(64), nullable=False)
     config_id = db.Column(db.Integer)
     specs_text = db.Column(db.Text)
+    yaml_name = db.Column(db.CHAR(128))
 
     def __str__(self):
         return 'DeployVersion <{r.appname}:{r.tag}:{r.id}>'.format(r=self)
 
     @classmethod
-    def create(cls, app, tag, specs_text, parent_id, cluster, config_id=None):
+    def create(cls, app, tag, yaml_name, specs_text, parent_id, cluster, config_id=None):
         """app must be an App instance"""
         if isinstance(specs_text, Dict):
             specs_text = yaml.dump(specs_text.to_dict())
@@ -311,7 +311,8 @@ class DeployVersion(BaseModelMixin):
             app_specs_schema.load(yaml.safe_load(specs_text))
 
         try:
-            ver = cls(tag=tag, app_id=app.id, parent_id=parent_id, cluster=cluster, config_id=config_id, specs_text=specs_text)
+            ver = cls(tag=tag, app_id=app.id, parent_id=parent_id, cluster=cluster,
+                      config_id=config_id, yaml_name=yaml_name, specs_text=specs_text)
             db.session.add(ver)
             db.session.commit()
         except IntegrityError:
@@ -381,6 +382,7 @@ class DeployVersion(BaseModelMixin):
             'release_tag': self.tag,
             'config_id': self.config_id,
             'cluster': self.cluster,
+            'yaml_name': self.yaml_name,
         }
 
 
