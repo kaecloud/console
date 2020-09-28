@@ -32,8 +32,10 @@ spec:
           # to it. Uncomment only if the default does not work.
           # - --apiserver-host=http://my-address:port
           volumeMounts:
-            - name: kae-console-secret-vol
-              mountPath: /etc/kae-console
+            - name: kae-console-secrets-vol
+              mountPath: /etc/kae/secrets
+            - name: kae-console-config-vol
+              mountPath: /etc/kae
           resources:
             requests:
               memory: "128Mi"
@@ -42,9 +44,15 @@ spec:
               memory: "512Mi"
               cpu: "750m"
       volumes:
-        - name: kae-console-secret-vol
+        - name: kae-console-secrets-vol
           secret:
-            secretName: kae-console
+            secretName: kae-console-secrets
+        - name: kae-console-config-vol
+          secret:
+            secretName: kae-console-config
+            items:
+              - key: config.py
+                path: config.py
       serviceAccountName: kae-console-serviceaccount
       # Comment the following tolerations if console must not be deployed on master
       tolerations:
