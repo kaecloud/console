@@ -34,6 +34,7 @@ from console.libs.k8s import ApiException
 from console.config import (
     DEFAULT_REGISTRY, IM_WEBHOOK_CHANNEL,
     TASK_PUBSUB_CHANNEL, TASK_PUBSUB_EOF,
+    CLUSTER_CFG,
 )
 from console.ext import rds
 
@@ -312,6 +313,40 @@ def get_app(appname):
           }
     """
     return get_app_raw(appname, [RBACAction.GET, ])
+
+
+@bp.route('/<appname>/grafana_dashboard')
+@use_args(ClusterArgSchema(), location="query")
+@user_require(True)
+def get_app_grafana_dashboard(args, appname):
+    """
+    get grafana dashboard url
+    ---
+    parameters:
+      - name: appname
+        in: path
+        type: string
+        required: true
+    responses:
+      200:
+        description: error message
+        schema:
+          $ref: '#/definitions/Error'
+        examples:
+          application/json:
+            error: null
+    """
+    cluster = args['cluster']
+    app = get_app_raw(appname, [RBACAction.ROLLBACK], cluster)
+    dashboard_url = ""
+    cluster_cfg = CLUSTER_CFG.get(cluster)
+    if cluster_cfg is not None:
+        dashboard_url = cluster_cfg.get("default_grafana_dashboard", "")
+        if dashboard_url != "":
+            dashboard_url = f"{dashboard_url}&var-namespace={cluster_cfg.get('namespace')}&var-appname={appname}"
+    return {
+        "dashboard_url": dashboard_url,
+    }
 
 
 @bp.route('/<appname>/deploy_history')
