@@ -518,6 +518,7 @@ def delete_app(appname):
     delete_roles_relate_to_app(app)
     app.delete()
 
+    # TODO: maybe not need to create operation log for app deletion
     OPLog.create(
         username=g.user.username,
         app_id=app.id,
@@ -527,6 +528,7 @@ def delete_app(appname):
     )
 
     msg = 'Warning: App **{}** has been deleted by **{}**.'.format(appname, g.user.nickname)
+    logger.warning(msg)
     im_sendmsg(IM_WEBHOOK_CHANNEL, msg)
     return DEFAULT_RETURN_VALUE
 

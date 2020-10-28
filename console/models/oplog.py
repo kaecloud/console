@@ -66,6 +66,10 @@ class OPLog(BaseModelMixin):
         db.session.commit()
         return op_log
 
+    @classmethod
+    def delete_by_app_id(cls, app_id):
+        OPLog.query.filter_by(app_id=app_id).delete()
+
     @property
     def verbose_action(self):
         return self.action.name

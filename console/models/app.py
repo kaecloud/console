@@ -88,6 +88,10 @@ class App(BaseModelMixin):
         # delete all releases
         Release.query.filter_by(app_id=self.id).delete()
         DeployVersion.query.filter_by(app_id=self.id).delete()
+        # delete all op log
+        from console.models.oplog import OPLog
+        OPLog.delete_by_app_id(self.id)
+
         return super(App, self).delete()
 
 
