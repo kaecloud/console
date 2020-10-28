@@ -126,6 +126,10 @@ class GroupRoleBindingModelView(ConsoleModelView):
     }
 
 
+class OPLogModelView(ConsoleModelView):
+    column_searchable_list = ['appname', 'username']
+
+
 def init_admin(admin):
     admin.add_view(AppModelView(App, db.session, endpoint='app_db_admin'))
     admin.add_view(ConsoleModelView(AppYaml, db.session, endpoint='app_yaml_db_admin'))
@@ -134,5 +138,5 @@ def init_admin(admin):
     admin.add_view(RoleModelView(Role, db.session, endpoint='role_db_admin'))
     admin.add_view(UserRoleBindingModelView(UserRoleBinding, db.session, endpoint="user_role_binding_db_admin"))
     admin.add_view(GroupRoleBindingModelView(GroupRoleBinding, db.session, endpoint="group_role_binding_db_admin"))
-    admin.add_view(ConsoleModelView(OPLog, db.session, endpoint='oplog_db_admin'))
+    admin.add_view(OPLogModelView(OPLog, db.session, endpoint='oplog_db_admin'))
 
