@@ -3,7 +3,9 @@
 import json
 import yaml
 import contextlib
+import copy
 
+import requests
 import redis_lock
 from addict import Dict
 from flask import abort, g
@@ -34,7 +36,7 @@ from console.libs.k8s import ApiException
 from console.config import (
     DEFAULT_REGISTRY, IM_WEBHOOK_CHANNEL,
     TASK_PUBSUB_CHANNEL, TASK_PUBSUB_EOF,
-    CLUSTER_CFG,
+    CLUSTER_CFG, EVENT_WEBHOOK_URL,
 )
 from console.ext import rds
 
@@ -76,6 +78,25 @@ def fix_app_spec(spec, appname, tag):
                 raise ValidationError("you must set image for container")
             container["image"] = default_release_image
         container['image'] = container['image'].replace('${TAG}', tag)
+
+
+def handle_event(**kwargs):
+    url = EVENT_WEBHOOK_URL.strip()
+    if url != "":
+        data = copy.deepcopy(kwargs)
+        data["action"] = str(kwargs["action"])
+        try:
+            requests.post(url, json=data, timeout=20)
+        except:
+            msg = f"Can't send event to webhook: {data}"
+            im_sendmsg(IM_WEBHOOK_CHANNEL, msg)
+            logger.exception("Can't send event to webhook")
+    # create operation log
+    data = kwargs
+    if "prev_tag" in kwargs:
+        data = copy.deepcopy(kwargs)
+        data.pop("prev_tag")
+    OPLog.create(**data)
 
 
 @contextlib.contextmanager
@@ -437,7 +458,7 @@ def rollback_app(args, appname):
                 specs, previous_ver,
                 cluster_name=cluster, version=version)
 
-    OPLog.create(
+    handle_event(
         username=g.user.username,
         app_id=app.id,
         appname=appname,
@@ -477,7 +498,7 @@ def renew_app(args, appname):
         with handle_k8s_error("Error when renew app {}".format(appname)):
             KubeApi.instance().renew_app(appname, cluster_name=cluster)
 
-    OPLog.create(
+    handle_event(
         username=g.user.username,
         app_id=app.id,
         appname=appname,
@@ -519,7 +540,7 @@ def delete_app(appname):
     app.delete()
 
     # TODO: maybe not need to create operation log for app deletion
-    OPLog.create(
+    handle_event(
         username=g.user.username,
         app_id=app.id,
         appname=appname,
@@ -830,7 +851,7 @@ def update_release_spec(args, appname, tag):
     release.specs_text = specs_text
     release.save()
 
-    OPLog.create(
+    handle_event(
         username=g.user.username,
         app_id=release.app_id,
         appname=appname,
@@ -1024,7 +1045,7 @@ def create_config_map(args, appname):
         cm_data = exist_data
     AppConfig.create(app, cluster, cm_data)
 
-    OPLog.create(
+    handle_event(
         username=g.user.username,
         appname=appname,
         app_id=app.id,
@@ -1315,7 +1336,7 @@ def register_release(args):
         else:
             return abort(400, 'release is duplicate')
 
-    OPLog.create(
+    handle_event(
         username=g.user.username,
         appname=appname,
         app_id=app.id,
@@ -1385,7 +1406,7 @@ def scale_app(args, appname):
 
         with handle_k8s_error("Error when scale app {}".format(appname)):
             KubeApi.instance().scale_app(appname, replicas, cluster_name=cluster)
-    OPLog.create(
+    handle_event(
         username=g.user.username,
         app_id=app.id,
         appname=appname,
@@ -1450,6 +1471,7 @@ def deploy_app(args, appname):
     app_yaml_name = args['app_yaml_name']
     use_newest_config = args['use_newest_config']
 
+    prev_tag = None
     app = get_app_raw(appname, [RBACAction.DEPLOY], cluster)
 
     app_yaml = AppYaml.get_by_app_and_name(app, app_yaml_name)
@@ -1478,6 +1500,7 @@ def deploy_app(args, appname):
                 deploy_info = json.loads(k8s_deployment.metadata.annotations[ANNO_DEPLOY_INFO])
                 exist_deploy_id = deploy_info["deploy_id"]
                 config_id = deploy_info.get("config_id")
+                prev_tag = deploy_info.get("release_tag")
                 # check the config id in deployment and configmap are same
                 # if these two value is not same, it means data inconsistent,
                 # such as create a configmap in new version, but don't create deployment in correspond version
@@ -1538,12 +1561,13 @@ def deploy_app(args, appname):
             logger.exception("kubernetes error ")
             abort(500, 'kubernetes error: {}'.format(str(e)))
 
-        OPLog.create(
+        handle_event(
             username=g.user.username,
             app_id=app.id,
             cluster=cluster,
             appname=appname,
             tag=tag,
+            prev_tag=prev_tag,
             action=OPType.DEPLOY_APP,
         )
         return DEFAULT_RETURN_VALUE
@@ -1578,7 +1602,7 @@ def undeploy_app(args, appname):
     with lock_app(appname):
         with handle_k8s_error("Error when undploy app {}".format(appname)):
             KubeApi.instance().undeploy_app(appname, app.type, ignore_404=True, cluster_name=cluster)
-            OPLog.create(
+            handle_event(
                 username=g.user.username,
                 app_id=app.id,
                 appname=appname,
@@ -1704,7 +1728,7 @@ def deploy_app_canary(args, appname):
             logger.exception("Kubernetes error ")
             abort(500, 'kubernetes error: {}'.format(str(e)))
 
-        OPLog.create(
+        handle_event(
             username=g.user.username,
             app_id=app.id,
             appname=appname,
@@ -1735,7 +1759,7 @@ def undeploy_app_canary(args, appname):
         with handle_k8s_error("Error when delete app canary {}".format(appname)):
             KubeApi.instance().undeploy_app_canary(appname, cluster_name=cluster)
 
-        OPLog.create(
+        handle_event(
             username=g.user.username,
             app_id=app.id,
             appname=appname,
@@ -1767,7 +1791,7 @@ def set_app_canary_weight(args, appname):
         with handle_k8s_error("Error when set app canary weight {}".format(appname)):
             KubeApi.instance().set_canary_weight(appname, weight, cluster_name=cluster)
 
-        OPLog.create(
+        handle_event(
             username=g.user.username,
             app_id=app.id,
             appname=appname,
