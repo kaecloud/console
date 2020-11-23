@@ -84,7 +84,7 @@ def handle_event(**kwargs):
     url = EVENT_WEBHOOK_URL.strip()
     if url != "":
         data = copy.deepcopy(kwargs)
-        data["action"] = str(kwargs["action"])
+        data["action"] = str(kwargs["action"].value)
         try:
             requests.post(url, json=data, timeout=20)
         except:
@@ -93,9 +93,9 @@ def handle_event(**kwargs):
             logger.exception("Can't send event to webhook")
     # create operation log
     data = kwargs
-    if "prev_tag" in kwargs:
+    if "prev" in kwargs:
         data = copy.deepcopy(kwargs)
-        data.pop("prev_tag")
+        data.pop("prev")
     OPLog.create(**data)
 
 
@@ -1400,8 +1400,9 @@ def scale_app(args, appname):
         _check_deploy_info_error(k8s_deployment)
         deploy_info = json.loads(k8s_deployment.metadata.annotations[ANNO_DEPLOY_INFO])
 
+        cur_replicas = k8s_deployment.spec.replicas
         # if request replicas is equal to current replicas, ignore it
-        if replicas == k8s_deployment.spec.replicas:
+        if replicas == cur_replicas:
             return
 
         with handle_k8s_error("Error when scale app {}".format(appname)):
@@ -1413,7 +1414,10 @@ def scale_app(args, appname):
         cluster=cluster,
         tag=deploy_info.get("release_tag", None),
         action=OPType.SCALE_APP,
-        content=f"scale app `{appname}`(replicas {replicas})"
+        content=f"scale app `{appname}`(replicas {replicas})",
+        prev={
+            "replicas": cur_replicas,
+        },
     )
     return DEFAULT_RETURN_VALUE
 
@@ -1567,8 +1571,10 @@ def deploy_app(args, appname):
             cluster=cluster,
             appname=appname,
             tag=tag,
-            prev_tag=prev_tag,
             action=OPType.DEPLOY_APP,
+            prev={
+                "tag": prev_tag,
+            },
         )
         return DEFAULT_RETURN_VALUE
 
