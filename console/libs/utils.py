@@ -18,6 +18,8 @@ from email.utils import COMMASPACE, formatdate
 from email.encoders import encode_base64
 from subprocess import Popen, PIPE, STDOUT, run, CalledProcessError
 
+import semver
+
 import docker
 from flask import session
 from functools import wraps
@@ -159,6 +161,49 @@ def im_sendmsg(to, content):
     except:
         logger.exception('Send im msg failed')
         return
+
+
+def validate_release_version(ver):
+    if not ver:
+        return False
+
+    def _validate_semver(ver1):
+        """
+        check if it is a semantic version
+        :param ver1:
+        :return:
+        """
+        if ver1[0] == 'v' or ver1[0] == "V":
+            ver1 = ver1[1:]
+        try:
+            semver.VersionInfo.parse(ver1)
+            return True
+        except ValueError:
+            return False
+
+    def _validate_special_ver(ver2):
+        """
+        check if the string is in a special format: xx.xx.xx.xx, the first part is year, the second part is month, the third part is day, the last part is a count number
+        :param ver2:
+        :return:
+        """
+        parts = ver2.split(".")
+        if len(parts) != 4:
+            return False
+        for p in parts:
+            if len(p) != 2:
+                return False
+            try:
+                if int(p) < 1:
+                    return False
+            except ValueError:
+                return False
+        if int(parts[1]) > 12:
+            return False
+        if int(parts[2]) > 30:
+            return False
+        return True
+    return _validate_semver(ver) or _validate_special_ver(ver)
 
 
 def make_shell_env(env_content):

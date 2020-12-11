@@ -24,7 +24,7 @@ from console.libs.validation import (
 
 from console.libs.utils import (
     logger, make_canary_appname, im_sendmsg, make_app_redis_key,
-    make_errmsg, get_safe_cluster_names,
+    make_errmsg, get_safe_cluster_names, validate_release_version,
 )
 from console.libs.view import create_api_blueprint, DEFAULT_RETURN_VALUE, user_require
 from console.models import (
@@ -1276,6 +1276,8 @@ def register_release(args):
     force = args['force']
     clusters = args.get('clusters', None)
     clusters = get_safe_cluster_names(clusters)
+    if validate_release_version(tag) is False:
+        abort(400, "tag is invalid, kae suggests using semantic version")
     # check the format of specs
     try:
         yaml_dict = yaml.safe_load(specs_text)
