@@ -358,7 +358,7 @@ def get_app_grafana_dashboard(args, appname):
             error: null
     """
     cluster = args['cluster']
-    app = get_app_raw(appname, [RBACAction.ROLLBACK], cluster)
+    app = get_app_raw(appname, [RBACAction.GET], cluster)
     dashboard_url = ""
     cluster_cfg = CLUSTER_CFG.get(cluster)
     if cluster_cfg is not None:
