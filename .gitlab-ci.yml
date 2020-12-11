@@ -18,6 +18,7 @@ unittest:
     - apk update
     - apk add --no-cache git openssh libffi-dev openssl-dev alpine-sdk
     - pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
+    - pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ pytest mock pytest-flask pytest-mock
   script:
     - PYTEST=1 pytest
 
