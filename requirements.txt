@@ -1,19 +1,20 @@
+-i https://pypi.org/simple/
 addict==2.2.0
-alembic==1.4.2
-amqp==2.6.0
-attrs==19.3.0
+alembic==1.5.8
+amqp==2.6.1
+attrs==20.3.0
 billiard==3.6.3.0
 blinker==1.4
 boltons==20.1.0
-cachelib==0.1
-cachetools==4.1.0
+cachelib==0.1.1
+cachetools==4.2.1
 celery==4.4.5
-certifi==2020.4.5.2
+certifi==2020.12.5
 chardet==3.0.4
 click==7.1.2
 crontab==0.22.8
 docker==4.2.1
-ecdsa==0.15
+ecdsa==0.14.1
 flasgger==0.9.4
 flask-admin==1.5.6
 flask-caching==1.9.0
@@ -26,23 +27,23 @@ flask-sqlalchemy==2.4.3
 flask==1.1.2
 future==0.18.2
 gevent-websocket==0.10.1
-gevent==20.6.1
-google-auth==1.17.0
+gevent==21.1.2
+google-auth==1.28.0
 grafana-api==1.0.2
-greenlet==0.4.16 ; platform_python_implementation == 'CPython'
+greenlet==1.0.0 ; platform_python_implementation == 'CPython'
 gunicorn==20.0.4
-httplib2==0.18.1
+httplib2==0.19.0
 humanfriendly==4.17
 humanize==2.4.0
-idna==2.9
-importlib-metadata==1.6.1 ; python_version < '3.8'
+idna==2.10
+importlib-metadata==3.9.1 ; python_version < '3.8'
 itsdangerous==1.1.0
-jinja2==2.11.2
+jinja2==2.11.3
 jsonschema==3.2.0
-kaelib==0.0.12
-kombu==4.6.10
+kaelib==0.0.9
+kombu==4.6.11
 kubernetes==11.0.0
-mako==1.1.3
+mako==1.1.4
 markupsafe==1.1.1
 marshmallow==2.17.0
 mistune==0.8.4
@@ -53,30 +54,30 @@ pyasn1-modules==0.2.8
 pyasn1==0.4.8
 pymysql==0.9.3
 pyparsing==2.4.7
-pyrsistent==0.16.0
+pyrsistent==0.17.3
 python-dateutil==2.8.1
 python-editor==1.0.4
-python-jose==3.1.0
+python-jose==3.2.0
 python-keycloak==0.20.0
 python-redis-lock==3.5.0
-pytz==2020.1
+pytz==2021.1
 pyyaml==5.3.1
 raven==6.10.0
 redis==3.5.3
 requests-oauthlib==1.3.0
 requests==2.23.0
-rsa==4.1
+rsa==4.7.2 ; python_version >= '3.6'
 six==1.15.0
 smart-getenv==1.1.0
 sqlalchemy==1.3.17
-urllib3==1.25.9
+typing-extensions==3.7.4.3 ; python_version < '3.8'
+urllib3==1.25.11
 vine==1.3.0
 webargs==6.1.0
 websocket-client==0.54.0
 werkzeug==1.0.1
 wrapt==1.12.1
-wtforms==2.3.1
-zipp==3.1.0
-zope.event==4.4
-zope.interface==5.1.0
-semver
+wtforms==2.3.3
+zipp==3.4.1
+zope.event==4.5.0
+zope.interface==5.3.0
