@@ -8,7 +8,7 @@ boltons==20.1.0
 cachelib==0.1
 cachetools==4.1.0
 celery==4.4.5
-certifi==2020.4.5.2
+certifi==2022.12.7
 chardet==3.0.4
 click==7.1.2
 crontab==0.22.8
